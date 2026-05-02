@@ -1,0 +1,186 @@
+package com.arny.habrrss.domain.models
+
+import kotlinx.serialization.Serializable
+
+data class FeedDescriptor(
+    val id: String,
+    val title: String,
+    val sourceTitle: String,
+    val url: String,
+    val description: String,
+    val kind: FeedKind,
+)
+
+enum class FeedKind {
+    All,
+    Best,
+    Posts,
+    News,
+    Hub,
+    Tag,
+    Search,
+    Custom,
+}
+
+data class FeedItem(
+    val id: String,
+    val feedId: String,
+    val title: String,
+    val summary: String,
+    val descriptionHtml: String? = null,
+    val url: String,
+    val imageUrl: String?,
+    val author: Author?,
+    val publishedAt: String?,
+    val tags: List<Tag>,
+    val hubs: List<Hub>,
+    val rating: String?,
+    val commentsCount: Int?,
+    val isRead: Boolean,
+    val isBookmarked: Boolean,
+)
+
+data class FeedPage(
+    val items: List<FeedItem>,
+    val nextCursor: PageCursor?,
+    val fromCache: Boolean,
+    val updatedAt: String?,
+)
+
+data class PageCursor(
+    val value: String,
+    val direction: CursorDirection = CursorDirection.Next,
+)
+
+enum class CursorDirection {
+    Next,
+    Previous,
+}
+
+data class ArticleContent(
+    val id: String,
+    val title: String,
+    val url: String,
+    val imageUrl: String?,
+    val author: Author?,
+    val publishedAt: String?,
+    val tags: List<Tag>,
+    val hubs: List<Hub>,
+    val blocks: List<ArticleBlock>,
+    val sourceNotice: String,
+)
+
+sealed interface ArticleBlock {
+    data class Paragraph(val inline: List<InlineNode>) : ArticleBlock
+    data class Heading(val level: Int, val inline: List<InlineNode>) : ArticleBlock
+    data class Image(val url: String, val alt: String?) : ArticleBlock
+    data class CodeBlock(val language: String?, val code: String) : ArticleBlock
+    data class Quote(val blocks: List<ArticleBlock>) : ArticleBlock
+    data class ListBlock(val ordered: Boolean, val items: List<List<ArticleBlock>>) : ArticleBlock
+    data class TableBlock(val rows: List<List<List<ArticleBlock>>>) : ArticleBlock
+    data class UnknownHtml(val html: String) : ArticleBlock
+}
+
+sealed interface InlineNode {
+    data class Text(val value: String) : InlineNode
+    data class Link(val text: String, val url: String) : InlineNode
+    data class Code(val value: String) : InlineNode
+    data class Bold(val children: List<InlineNode>) : InlineNode
+    data class Italic(val children: List<InlineNode>) : InlineNode
+}
+
+data class CommentNode(
+    val id: String,
+    val author: Author?,
+    val publishedAt: String?,
+    val body: List<ArticleBlock>,
+    val children: List<CommentNode>,
+)
+
+@Serializable
+data class Tag(
+    val id: String,
+    val title: String,
+)
+
+@Serializable
+data class Hub(
+    val id: String,
+    val title: String,
+)
+
+@Serializable
+data class Author(
+    val id: String,
+    val displayName: String,
+    val profileUrl: String?,
+)
+
+data class ReadingState(
+    val articleId: String,
+    val isRead: Boolean,
+    val lastOpenedAt: String?,
+    val scrollPosition: Int,
+)
+
+data class Bookmark(
+    val articleId: String,
+    val createdAt: String,
+    val note: String?,
+)
+
+data class FeedSettings(
+    val themeMode: ThemeMode,
+    val fontScale: Float,
+    val lineHeightScale: Float,
+    val compactCards: Boolean,
+    val offlinePolicy: CachePolicy,
+    val cacheSizeMb: Int,
+    val autoRefreshMinutes: Int,
+    val openLinksInsideApp: Boolean,
+) {
+    companion object {
+        fun defaults(): FeedSettings = FeedSettings(
+            themeMode = ThemeMode.System,
+            fontScale = 1f,
+            lineHeightScale = 1.25f,
+            compactCards = false,
+            offlinePolicy = CachePolicy.OnlineFirst,
+            cacheSizeMb = 256,
+            autoRefreshMinutes = 30,
+            openLinksInsideApp = false,
+        )
+    }
+}
+
+enum class ThemeMode {
+    System,
+    Light,
+    Dark,
+}
+
+data class UserFilter(
+    val hiddenTags: Set<String>,
+    val hiddenAuthors: Set<String>,
+    val hiddenKeywords: Set<String>,
+    val showUnreadOnly: Boolean,
+)
+
+enum class CachePolicy {
+    OnlineFirst,
+    CacheFirst,
+    OfflineOnly,
+    RefreshInBackground,
+}
+
+data class ExportRequest(
+    val articleId: String,
+    val format: ExportFormat,
+    val includeImages: Boolean,
+    val targetPath: String?,
+)
+
+enum class ExportFormat {
+    Markdown,
+    Pdf,
+}
