@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -110,6 +113,7 @@ internal fun FeedScreen(
     } else {
         Column(Modifier.fillMaxSize()) {
             FeedFilterBar(
+                isWide = isWide,
                 state = state,
                 onFeedSelected = onFeedSelected,
                 onPublicationSectionSelected = onPublicationSectionSelected,
@@ -137,6 +141,7 @@ internal fun FeedScreen(
 
 @Composable
 internal fun FeedFilterBar(
+    isWide: Boolean,
     state: ReaderUiState,
     onFeedSelected: (String) -> Unit,
     onPublicationSectionSelected: (HabrPublicationSection) -> Unit,
@@ -164,10 +169,30 @@ internal fun FeedFilterBar(
     }
     val metadataFilterCount = hubs.size + favoriteTags.size + regularTags.size
     val hasMetadataFilters = metadataFilterCount > 0
-    var metadataFiltersExpanded by remember { mutableStateOf(state.selectedHubId != null || state.selectedTagId != null) }
+    var metadataFiltersExpanded by remember(isWide) {
+        mutableStateOf(isWide && (state.selectedHubId != null || state.selectedTagId != null))
+    }
+    val activeMetadataLabel = remember(
+        state.selectedHubId,
+        state.selectedTagId,
+        hubs,
+        favoriteTags,
+        regularTags,
+    ) {
+        when {
+            state.selectedHubId != null -> {
+                hubs.firstOrNull { it.id == state.selectedHubId }?.title?.let { "Хаб: $it" } ?: "Хаб выбран"
+            }
+            state.selectedTagId != null -> {
+                (favoriteTags + regularTags).firstOrNull { it.id == state.selectedTagId }?.title?.let { "Тег: #$it" }
+                    ?: "Тег выбран"
+            }
+            else -> "Метки"
+        }
+    }
 
-    LaunchedEffect(state.selectedHubId, state.selectedTagId) {
-        if (state.selectedHubId != null || state.selectedTagId != null) {
+    LaunchedEffect(isWide, state.selectedHubId, state.selectedTagId) {
+        if (isWide && (state.selectedHubId != null || state.selectedTagId != null)) {
             metadataFiltersExpanded = true
         }
     }
@@ -236,8 +261,53 @@ internal fun FeedFilterBar(
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, modifier = Modifier.size(16.dp)) },
                     )
                     FeedModeChip(state.feedCardMode, onCardModeChanged)
+                    if (hasMetadataFilters && !isWide) {
+                        Box {
+                            FilterChip(
+                                selected = state.selectedHubId != null || state.selectedTagId != null,
+                                onClick = { metadataFiltersExpanded = true },
+                                modifier = Modifier.widthIn(max = 180.dp),
+                                label = {
+                                    Text(
+                                        activeMetadataLabel,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Tag, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                trailingIcon = {
+                                    Icon(
+                                        Icons.Filled.ExpandMore,
+                                        contentDescription = "Открыть",
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                },
+                            )
+                            MetadataDropdownMenu(
+                                expanded = metadataFiltersExpanded,
+                                onDismiss = { metadataFiltersExpanded = false },
+                                hubs = hubs,
+                                favoriteTags = favoriteTags,
+                                regularTags = regularTags,
+                                selectedHubId = state.selectedHubId,
+                                selectedTagId = state.selectedTagId,
+                                onClear = {
+                                    onHubSelected(null)
+                                    metadataFiltersExpanded = false
+                                },
+                                onHubSelected = { hubId ->
+                                    onHubSelected(hubId)
+                                    metadataFiltersExpanded = false
+                                },
+                                onTagSelected = { tagId ->
+                                    onTagSelected(tagId)
+                                    metadataFiltersExpanded = false
+                                },
+                            )
+                        }
+                    }
                 }
-                if (hasMetadataFilters) {
+                if (hasMetadataFilters && isWide) {
                     FilterChipRow {
                         AssistChip(
                             onClick = { metadataFiltersExpanded = !metadataFiltersExpanded },
@@ -288,6 +358,95 @@ internal fun FeedFilterBar(
             }
         }
     }
+}
+
+@Composable
+private fun MetadataDropdownMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    hubs: List<Hub>,
+    favoriteTags: List<Tag>,
+    regularTags: List<Tag>,
+    selectedHubId: String?,
+    selectedTagId: String?,
+    onClear: () -> Unit,
+    onHubSelected: (String) -> Unit,
+    onTagSelected: (String) -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .widthIn(min = 260.dp, max = 340.dp)
+            .heightIn(max = 420.dp),
+    ) {
+        MetadataMenuItem(
+            label = "Все метки и теги",
+            selected = selectedHubId == null && selectedTagId == null,
+            onClick = onClear,
+        )
+        if (hubs.isNotEmpty()) {
+            HorizontalDivider()
+            Text(
+                text = "Хабы",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            hubs.forEach { hub ->
+                MetadataMenuItem(
+                    label = hub.title,
+                    selected = selectedHubId == hub.id,
+                    onClick = { onHubSelected(hub.id) },
+                )
+            }
+        }
+        val tags = favoriteTags + regularTags
+        if (tags.isNotEmpty()) {
+            HorizontalDivider()
+            Text(
+                text = "Теги",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            tags.forEach { tag ->
+                MetadataMenuItem(
+                    label = "#${tag.title}",
+                    selected = selectedTagId == tag.id,
+                    onClick = { onTagSelected(tag.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetadataMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Filled.Tag,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        onClick = onClick,
+    )
 }
 
 @Composable
