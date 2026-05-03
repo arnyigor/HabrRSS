@@ -9,6 +9,7 @@ import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedPage
 import com.arny.habrrss.domain.models.Hub
+import com.arny.habrrss.domain.models.CursorDirection
 import com.arny.habrrss.domain.models.PageCursor
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.domain.source.FeedSource
@@ -74,25 +75,45 @@ class HabrRssSource(
         val descriptor = feeds.find { it.id == feedId }
             ?: return FeedPage(emptyList(), null, false, null)
 
-        val xml = client.get(descriptor.url).bodyAsText()
+        // Determine page number from cursor or start from page 1
+        val pageNumber = page?.value?.toIntOrNull() ?: 1
+
+        // Build URL with page parameter
+        val urlWithPage = buildUrlWithPage(descriptor.url, pageNumber)
+
+        val xml = client.get(urlWithPage).bodyAsText()
         val doc = Ksoup.parse(xml, Parser.xmlParser())
         val items = doc.select("item").map { parseItem(it, feedId) }
 
+        // If we got full page (100 items), there's likely more pages
+        // If less, it's the last page
+        val nextCursor = if (items.size >= 100) {
+            PageCursor(value = "${pageNumber + 1}", direction = CursorDirection.Next)
+        } else {
+            null
+        }
+
         return FeedPage(
             items = items,
-            nextCursor = null,
+            nextCursor = nextCursor,
             fromCache = false,
             updatedAt = "${System.currentTimeMillis()}"
         )
+    }
+
+    private fun buildUrlWithPage(baseUrl: String, page: Int): String {
+        val separator = if (baseUrl.contains('?')) "&" else "?"
+        return "$baseUrl${separator}page=$page"
     }
 
     private fun parseItem(element: Element, feedId: String): FeedItem {
         val title = element.rssText("title")?.takeIf { it.isNotBlank() }
             ?: "Без заголовка"
         val link = element.rssText("link") ?: ""
-        val guid = element.rssText("guid")?.takeIf { it.isNotBlank() }
-            ?: link.ifBlank { "guid-${System.currentTimeMillis()}" }
+        // Stable ID priority: 1) article ID from URL, 2) canonical URL, 3) guid, 4) hash of title+pubDate+author
+        val articleId = extractStableArticleId(link, element.rssText("guid"))
         val pubDate = element.rssText("pubDate")
+        val pubDateEpoch = pubDate?.parseRfc822Date()
         val descriptionHtml = element.rssHtml("description")
         val authorName = element.rssText("author")
             ?: element.rssText("dc|creator")
@@ -114,7 +135,7 @@ class HabrRssSource(
         val plainText = descDoc.text().trim()
 
         return FeedItem(
-            id = guid,
+            id = articleId,
             feedId = feedId,
             title = title,
             summary = plainText,
@@ -125,6 +146,7 @@ class HabrRssSource(
                 Author(id = "author-${it.hashCode()}", displayName = it, profileUrl = null)
             },
             publishedAt = pubDate,
+            publishedAtEpoch = pubDateEpoch,
             tags = tags,
             hubs = hubs,
             rating = null,
@@ -134,6 +156,7 @@ class HabrRssSource(
         )
     }
 
+    @Deprecated("Use ArticleContentSource instead", ReplaceWith("HabrArticleContentSource(client)"))
     override suspend fun getArticle(articleId: String): ArticleContent {
         val articleUrl = normalizeArticleUrl(articleId)
         val html = client.get(articleUrl).bodyAsText()
@@ -208,4 +231,115 @@ class HabrRssSource(
         val hubs: List<String>,
         val tags: List<String>,
     )
+
+    /**
+     * Extracts stable article ID with priority:
+     * 1. Article ID from URL pattern /articles/{id}/
+     * 2. Canonical URL (without query/fragment)
+     * 3. GUID from RSS
+     * 4. Hash of normalized title + pubDate + author (fallback)
+     */
+    private fun extractStableArticleId(link: String, guid: String?): String {
+        // Try to extract article ID from URL like https://habr.com/ru/articles/123456/
+        val articleIdFromUrl = link.extractHabrArticleId()
+        if (articleIdFromUrl != null) {
+            return articleIdFromUrl
+        }
+
+        // Try canonical URL (without query params and fragment)
+        val canonicalUrl = link.split('?').firstOrNull()?.split('#')?.firstOrNull()
+        if (!canonicalUrl.isNullOrBlank()) {
+            return canonicalUrl
+        }
+
+        // Try GUID
+        if (!guid.isNullOrBlank()) {
+            return guid
+        }
+
+        // Fallback: hash of link (should never happen for valid Habr RSS)
+        return "habr-${link.hashCode()}"
+    }
+
+    private fun String.extractHabrArticleId(): String? {
+        // Pattern: /articles/123456/ or /ru/articles/123456/
+        val regex = Regex("/(?:ru|en)/articles/(\\d+)/")
+        val match = regex.find(this)
+        return match?.groupValues?.get(1)?.let { "habr-$it" }
+    }
+
+    /**
+     * Parses RFC 822 / RFC 1123 date string to epoch milliseconds.
+     * Examples: "Sat, 02 May 2026 10:00:00 GMT", "Wed, 02 Apr 2025 14:30:00 +0300"
+     */
+    private fun String.parseRfc822Date(): Long? {
+        return try {
+            // Common RSS date formats
+            val patterns = listOf(
+                // "Sat, 02 May 2026 10:00:00 GMT"
+                Regex("""(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(\w+)?"""),
+                // "02 May 2026 10:00:00"
+                Regex("""(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})"""),
+            )
+
+            for (pattern in patterns) {
+                val match = pattern.find(this)
+                if (match != null) {
+                    val groups = match.groupValues
+                    val day = groups[1].toIntOrNull() ?: continue
+                    val monthStr = groups[2]
+                    val year = groups[3].toIntOrNull() ?: continue
+                    val hour = groups[4].toIntOrNull() ?: 0
+                    val minute = groups[5].toIntOrNull() ?: 0
+                    val second = groups[6].toIntOrNull() ?: 0
+                    val tz = groups.getOrNull(7) ?: "GMT"
+
+                    val month = monthStr.toMonthNumber() ?: continue
+                    val timezoneOffset = tz.toTimezoneOffset()
+
+                    val calendar = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+                    calendar.set(year, month, day, hour, minute, second)
+                    calendar.set(java.util.Calendar.MILLISECOND, 0)
+                    calendar.add(java.util.Calendar.ZONE_OFFSET, timezoneOffset)
+                    return calendar.timeInMillis
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun String.toMonthNumber(): Int? {
+        return when (uppercase()) {
+            "JAN" -> 0
+            "FEB" -> 1
+            "MAR" -> 2
+            "APR" -> 3
+            "MAY" -> 4
+            "JUN" -> 5
+            "JUL" -> 6
+            "AUG" -> 7
+            "SEP" -> 8
+            "OCT" -> 9
+            "NOV" -> 10
+            "DEC" -> 11
+            else -> null
+        }
+    }
+
+    private fun String.toTimezoneOffset(): Int {
+        return when (uppercase()) {
+            "GMT", "UTC", "Z" -> 0
+            "EST" -> -5 * 3600000
+            "EDT" -> -4 * 3600000
+            "CST" -> -6 * 3600000
+            "CDT" -> -5 * 3600000
+            "MST" -> -7 * 3600000
+            "MDT" -> -6 * 3600000
+            "PST" -> -8 * 3600000
+            "PDT" -> -7 * 3600000
+            else -> 0
+        }
+    }
 }

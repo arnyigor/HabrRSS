@@ -15,6 +15,7 @@ class HabrApiSource : FeedSource {
         throw SourceUnavailableException("Habr API is intentionally not used as the MVP data source.")
     }
 
+    @Deprecated("Use ArticleContentSource instead", ReplaceWith("ArticleContentSource"))
     override suspend fun getArticle(articleId: String): ArticleContent {
         throw SourceUnavailableException("Habr API adapter is a future extension point.")
     }

@@ -42,12 +42,21 @@ object HtmlArticleParser {
             "pre" -> {
                 val codeElement = element.selectFirst("code")
                 val language = codeElement?.classNames()?.firstOrNull()?.removePrefix("language-")
-                val codeText = codeElement?.text() ?: element.text()
+                // Use wholeText() to preserve whitespace in code blocks
+                val codeText = codeElement?.wholeText() ?: element.wholeText()
                 listOf(ArticleBlock.CodeBlock(language, codeText))
             }
             "blockquote" -> {
                 val innerBlocks = parse(element.html(), baseUrl)
                 listOf(ArticleBlock.Quote(innerBlocks))
+            }
+            "details" -> {
+                val summaryElement = element.selectFirst("summary")
+                val title = summaryElement?.text()?.trim()?.takeIf { it.isNotBlank() } ?: "Спойлер"
+                summaryElement?.remove()
+
+                val innerBlocks = parse(element.html(), baseUrl)
+                listOf(ArticleBlock.Spoiler(title, innerBlocks))
             }
             "ul", "ol" -> {
                 val ordered = element.tagName().lowercase() == "ol"
@@ -56,17 +65,60 @@ object HtmlArticleParser {
                     .map { li -> listOf(ArticleBlock.Paragraph(parseInline(li, baseUrl))) }
                 listOf(ArticleBlock.ListBlock(ordered, items))
             }
+            "table" -> listOf(parseTable(element, baseUrl))
             "img" -> {
                 listOf(ArticleBlock.Image(
                     url = normalizeUrl(element.attr("src"), baseUrl),
                     alt = element.attr("alt").takeIf { it.isNotBlank() }
                 ))
             }
-            "div" -> {
-                val inner = element.children().flatMap { parseTopLevelElement(it, baseUrl) }
-                inner.ifEmpty { textParagraph(element) }
+            "figure" -> {
+                // Handle figure with figcaption and nested content
+                val images = element.select("img").map { img ->
+                    ArticleBlock.Image(
+                        url = normalizeUrl(img.attr("src"), baseUrl),
+                        alt = img.attr("alt").takeIf { it.isNotBlank() }
+                    )
+                }
+                val figcaption = element.selectFirst("figcaption")?.let { fig ->
+                    ArticleBlock.Paragraph(parseInline(fig, baseUrl))
+                }
+                val otherContent = element.children()
+                    .filter { it.tagName().lowercase() !in listOf("img", "figcaption") }
+                    .flatMap { parseTopLevelElement(it, baseUrl) }
+
+                val allContent = mutableListOf<ArticleBlock>()
+                allContent.addAll(images)
+                figcaption?.let { allContent.add(it) }
+                allContent.addAll(otherContent)
+
+                allContent.ifEmpty { textParagraph(element) }
             }
-            "figure", "picture", "section" -> {
+            "picture" -> {
+                // Handle picture with source elements
+                val img = element.selectFirst("img")
+                val sources = element.select("source")
+                // Prefer source with srcset, fallback to img
+                val imageUrl: String? = sources.firstOrNull { it.attr("srcset").isNotBlank() }
+                    ?.attr("srcset")
+                    ?.split(",")
+                    ?.firstOrNull()
+                    ?.trim()
+                    ?.split(" ")
+                    ?.firstOrNull()
+                    ?: img?.attr("src")
+
+                if (imageUrl != null) {
+                    listOf(ArticleBlock.Image(
+                        url = normalizeUrl(imageUrl, baseUrl),
+                        alt = img?.attr("alt")?.takeIf { it.isNotBlank() }
+                    ))
+                } else {
+                    val inner = element.children().flatMap { parseTopLevelElement(it, baseUrl) }
+                    inner.ifEmpty { textParagraph(element) }
+                }
+            }
+            "div", "section" -> {
                 val inner = element.children().flatMap { parseTopLevelElement(it, baseUrl) }
                 inner.ifEmpty { textParagraph(element) }
             }
@@ -76,6 +128,44 @@ object HtmlArticleParser {
                 if (text.isNotEmpty()) listOf(ArticleBlock.Paragraph(parseInline(element, baseUrl))) else emptyList()
             }
         }
+    }
+
+    private fun parseTable(element: Element, baseUrl: String?): ArticleBlock.TableBlock {
+        val rows = mutableListOf<List<List<ArticleBlock>>>()
+
+        // Process thead, tbody, tfoot
+        val sections = element.select("thead, tbody, tfoot")
+        if (sections.isEmpty()) {
+            // No sections, treat direct tr children as rows
+            val trs = element.select("tr")
+            for (tr in trs) {
+                val row = parseTableRow(tr, baseUrl)
+                if (row.isNotEmpty()) rows.add(row)
+            }
+        } else {
+            for (section in sections) {
+                val trs = section.select("tr")
+                for (tr in trs) {
+                    val row = parseTableRow(tr, baseUrl)
+                    if (row.isNotEmpty()) rows.add(row)
+                }
+            }
+        }
+
+        return ArticleBlock.TableBlock(rows)
+    }
+
+    private fun parseTableRow(tr: Element, baseUrl: String?): List<List<ArticleBlock>> {
+        return tr.children()
+            .filter { it.tagName().lowercase() in listOf("td", "th") }
+            .map { cell ->
+                val cellBlocks = parse(cell.html(), baseUrl)
+                if (cellBlocks.isEmpty()) {
+                    listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text(cell.text().trim()))))
+                } else {
+                    cellBlocks
+                }
+            }
     }
 
     private fun textParagraph(element: Element): List<ArticleBlock> {
@@ -97,6 +187,16 @@ object HtmlArticleParser {
                         "code" -> nodes.add(InlineNode.Code(node.text()))
                         "strong", "b" -> nodes.add(InlineNode.Bold(parseInline(node, baseUrl)))
                         "em", "i" -> nodes.add(InlineNode.Italic(parseInline(node, baseUrl)))
+                        "sup", "sub" -> {
+                            // Wrap in italic as visual indicator (could be enhanced later)
+                            nodes.add(InlineNode.Italic(parseInline(node, baseUrl)))
+                        }
+                        "kbd" -> nodes.add(InlineNode.Code(node.text()))
+                        "mark" -> nodes.add(InlineNode.Bold(parseInline(node, baseUrl)))
+                        "del" -> {
+                            // Skip strikethrough content or wrap in special node
+                            nodes.addAll(parseInline(node, baseUrl))
+                        }
                         "br" -> Unit
                         else -> nodes.addAll(parseInline(node, baseUrl))
                     }

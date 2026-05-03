@@ -27,9 +27,12 @@ class InMemoryFeedDao : FeedDao {
     override suspend fun getBookmarksOnce(): List<FeedItemEntity> = 
         items.filter { it.isBookmarked }.sortedByDescending { it.publishedAt }
     
-    override suspend fun search(query: String): List<FeedItemEntity> = items.filter { 
-        it.title.contains(query, ignoreCase = true) || it.summary.contains(query, ignoreCase = true) 
+    override suspend fun search(query: String): List<FeedItemEntity> = items.filter {
+        it.title.contains(query, ignoreCase = true) || it.summary.contains(query, ignoreCase = true)
     }
+
+    // FTS not supported in memory - fallback to LIKE search
+    override suspend fun searchFts(query: String): List<FeedItemEntity> = search(query)
     
     // Fixed: O(n) instead of O(n²) - use HashSet for lookup
     // Note: parameter name 'items' matches FeedDao interface for compatibility

@@ -31,7 +31,8 @@ data class FeedItem(
     val url: String,
     val imageUrl: String?,
     val author: Author?,
-    val publishedAt: String?,
+    val publishedAt: String?, // RFC 822/1123 string for display
+    val publishedAtEpoch: Long?, // epoch milliseconds for sorting/comparison
     val tags: List<Tag>,
     val hubs: List<Hub>,
     val rating: String?,
@@ -57,6 +58,7 @@ enum class CursorDirection {
     Previous,
 }
 
+@Serializable
 data class ArticleContent(
     val id: String,
     val title: String,
@@ -70,22 +72,39 @@ data class ArticleContent(
     val sourceNotice: String,
 )
 
+@Serializable
 sealed interface ArticleBlock {
+    @Serializable
     data class Paragraph(val inline: List<InlineNode>) : ArticleBlock
+    @Serializable
     data class Heading(val level: Int, val inline: List<InlineNode>) : ArticleBlock
+    @Serializable
     data class Image(val url: String, val alt: String?) : ArticleBlock
+    @Serializable
     data class CodeBlock(val language: String?, val code: String) : ArticleBlock
+    @Serializable
     data class Quote(val blocks: List<ArticleBlock>) : ArticleBlock
+    @Serializable
     data class ListBlock(val ordered: Boolean, val items: List<List<ArticleBlock>>) : ArticleBlock
+    @Serializable
     data class TableBlock(val rows: List<List<List<ArticleBlock>>>) : ArticleBlock
+    @Serializable
+    data class Spoiler(val title: String, val blocks: List<ArticleBlock>) : ArticleBlock
+    @Serializable
     data class UnknownHtml(val html: String) : ArticleBlock
 }
 
+@Serializable
 sealed interface InlineNode {
+    @Serializable
     data class Text(val value: String) : InlineNode
+    @Serializable
     data class Link(val text: String, val url: String) : InlineNode
+    @Serializable
     data class Code(val value: String) : InlineNode
+    @Serializable
     data class Bold(val children: List<InlineNode>) : InlineNode
+    @Serializable
     data class Italic(val children: List<InlineNode>) : InlineNode
 }
 

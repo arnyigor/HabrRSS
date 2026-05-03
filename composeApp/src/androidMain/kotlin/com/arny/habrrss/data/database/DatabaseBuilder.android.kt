@@ -6,6 +6,8 @@ import androidx.room.RoomDatabase
 
 lateinit var appContext: Context
 
+fun isAppContextInitialized(): Boolean = ::appContext.isInitialized
+
 actual fun getDatabaseBuilder(): RoomDatabase.Builder<AppDatabase> {
     return Room.databaseBuilder<AppDatabase>(
         context = appContext,

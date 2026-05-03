@@ -10,6 +10,11 @@ import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.presentation.ReaderUiState
+import com.arny.habrrss.presentation.feed.HabrPublicationSection
+import com.arny.habrrss.presentation.feed.estimatedReadingMinutes
+import com.arny.habrrss.presentation.feed.habrCommentsLabel
+import com.arny.habrrss.presentation.feed.habrFeedTabs
+import com.arny.habrrss.presentation.feed.habrScoreLabel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,12 +39,21 @@ class HabrFeedPresentationTest {
         val posts = tabs.first { it.section == HabrPublicationSection.Posts }
         val hubs = tabs.first { it.section == HabrPublicationSection.Hubs }
 
+        assertEquals(
+            listOf(
+                HabrPublicationSection.Articles,
+                HabrPublicationSection.Posts,
+                HabrPublicationSection.News,
+                HabrPublicationSection.Hubs,
+            ),
+            tabs.map { it.section },
+        )
         assertTrue(articles.selected)
         assertTrue(articles.enabled)
         assertEquals(2, articles.count)
         assertFalse(posts.selected)
         assertTrue(posts.enabled)
-        assertFalse(hubs.enabled)
+        assertTrue(hubs.enabled)
     }
 
     @Test
@@ -87,6 +101,7 @@ class HabrFeedPresentationTest {
         imageUrl = null,
         author = Author("author", "Author", null),
         publishedAt = "2026-05-02",
+        publishedAtEpoch = null,
         tags = listOf(Tag("tag", "Tag")),
         hubs = listOf(Hub("hub", "Hub")),
         rating = "+1",

@@ -2,8 +2,10 @@ package com.arny.habrrss
 
 import com.arny.habrrss.data.article.HabrArticleContentExtractor
 import com.arny.habrrss.domain.models.ArticleBlock
+import com.arny.habrrss.ui.article.plainText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -47,6 +49,42 @@ class HabrArticleContentExtractorTest {
         assertTrue(article.blocks.any { it is ArticleBlock.CodeBlock })
         assertFalse(article.blocks.joinToString(" ") { it.textForTest() }.contains("Читать далее"))
     }
+
+    @Test
+    fun rejectsPagesWithoutFullArticleBody() {
+        val error = assertFailsWith<RuntimeException> {
+            HabrArticleContentExtractor().extract(
+                articleId = "missing",
+                articleUrl = "https://habr.com/ru/articles/missing/",
+                html = "<html><body><main>No article here</main></body></html>",
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("Article body not found"))
+    }
+
+    @Test
+    fun rejectsTooShortArticleBodies() {
+        val error = assertFailsWith<RuntimeException> {
+            HabrArticleContentExtractor().extract(
+                articleId = "short",
+                articleUrl = "https://habr.com/ru/articles/short/",
+                html = """
+                    <html>
+                      <body>
+                        <div id="post-content-body">
+                          <div class="article-formatted-body">
+                            <p>Слишком коротко.</p>
+                          </div>
+                        </div>
+                      </body>
+                    </html>
+                """.trimIndent(),
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("too short"))
+    }
 }
 
 private fun ArticleBlock.textForTest(): String = when (this) {
@@ -56,6 +94,7 @@ private fun ArticleBlock.textForTest(): String = when (this) {
     is ArticleBlock.ListBlock -> items.flatten().joinToString(" ") { it.textForTest() }
     is ArticleBlock.Paragraph -> inline.plainText()
     is ArticleBlock.Quote -> blocks.joinToString(" ") { it.textForTest() }
+    is ArticleBlock.Spoiler -> blocks.joinToString(" ") { it.textForTest() }
     is ArticleBlock.TableBlock -> rows.flatten().flatten().joinToString(" ") { it.textForTest() }
     is ArticleBlock.UnknownHtml -> html
 }

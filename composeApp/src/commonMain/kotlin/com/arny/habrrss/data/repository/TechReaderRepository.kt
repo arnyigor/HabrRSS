@@ -10,6 +10,8 @@ import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedPage
 import com.arny.habrrss.domain.models.InlineNode
+import com.arny.habrrss.domain.models.PageCursor
+import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import kotlinx.coroutines.CancellationException
@@ -18,10 +20,13 @@ import kotlinx.serialization.json.Json
 class TechReaderRepository(
     private val primarySource: FeedSource,
     private val feedDao: FeedDao,
+    private val articleContentSource: ArticleContentSource? = null,
     private val secondarySources: List<FeedSource> = emptyList(),
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var cachedFeeds: List<FeedDescriptor> = emptyList()
+    // Track next cursor per feed for pagination
+    private val feedCursors = mutableMapOf<String, PageCursor?>()
 
     suspend fun getFeeds(): List<FeedDescriptor> {
         if (cachedFeeds.isEmpty()) {
@@ -31,6 +36,9 @@ class TechReaderRepository(
     }
 
     suspend fun refreshFeed(feedId: String): FeedPage {
+        // Reset cursor for fresh load
+        feedCursors[feedId] = null
+
         val page = primarySource.getItems(feedId, page = null)
         val items = page.items.map { item ->
             val existing = feedDao.getById(item.id)
@@ -39,8 +47,16 @@ class TechReaderRepository(
                 isBookmarked = existing?.isBookmarked ?: item.isBookmarked,
             )
         }
-        val entities = items.map { it.toEntity(json) }
+        val entities = items.map { item ->
+            item.toEntity(
+                json = json,
+                cachedArticleJson = feedDao.getById(item.id)?.cachedArticleJson,
+            )
+        }
         feedDao.insertAll(entities)
+
+        // Store cursor for next page
+        feedCursors[feedId] = page.nextCursor
 
         return FeedPage(
             items = items,
@@ -49,6 +65,45 @@ class TechReaderRepository(
             updatedAt = page.updatedAt,
         )
     }
+
+    /**
+     * Load next page of feed items.
+     * Returns null if there's no more pages (cursor is null).
+     */
+    suspend fun loadNextPage(feedId: String): FeedPage? {
+        val cursor = feedCursors[feedId] ?: return null
+
+        val page = primarySource.getItems(feedId, page = cursor)
+        val items = page.items.map { item ->
+            val existing = feedDao.getById(item.id)
+            item.copy(
+                isRead = existing?.isRead ?: item.isRead,
+                isBookmarked = existing?.isBookmarked ?: item.isBookmarked,
+            )
+        }
+        val entities = items.map { item ->
+            item.toEntity(
+                json = json,
+                cachedArticleJson = feedDao.getById(item.id)?.cachedArticleJson,
+            )
+        }
+        feedDao.insertAll(entities)
+
+        // Update cursor for next page
+        feedCursors[feedId] = page.nextCursor
+
+        return FeedPage(
+            items = items,
+            nextCursor = page.nextCursor,
+            fromCache = false,
+            updatedAt = page.updatedAt,
+        )
+    }
+
+    /**
+     * Check if more pages are available for a feed
+     */
+    fun hasMorePages(feedId: String): Boolean = feedCursors[feedId] != null
 
     suspend fun getCachedFeed(feedId: String): List<FeedItem> {
         return feedDao.getByFeedOnce(feedId).map { it.toDomain(json) }
@@ -60,25 +115,35 @@ class TechReaderRepository(
         val entity = feedDao.getById(articleId)
             ?: throw SourceUnavailableException("Article not found: $articleId")
 
-        val fallback = buildArticleContent(entity)
-        val fullArticle = try {
-            primarySource.getArticle(entity.url)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            null
+        val cachedArticle = entity.cachedArticleJson?.let { cached ->
+            runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
+        }
+        val fallback = cachedArticle ?: buildArticleContent(entity)
+
+        // Try to fetch full article using dedicated content source
+        val fullArticle = articleContentSource?.let { source ->
+            try {
+                source.getArticleByUrl(entity.url)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
         }
 
-        return if (fullArticle != null && fullArticle.blocks.isNotEmpty()) {
-            // Preserve author from fallback (RSS) if full article doesn't have it
-            fallback.copy(
-                imageUrl = fallback.imageUrl ?: fullArticle.imageUrl,
-                blocks = fullArticle.blocks,
-                sourceNotice = fullArticle.sourceNotice,
-                author = fallback.author ?: fullArticle.author,
-            )
-        } else {
-            fallback
+        return when {
+            fullArticle != null && fullArticle.blocks.isNotEmpty() -> {
+                // Merge: preserve author from RSS fallback if full article doesn't have it
+                val merged = fallback.copy(
+                    imageUrl = fallback.imageUrl ?: fullArticle.imageUrl,
+                    blocks = fullArticle.blocks,
+                    sourceNotice = fullArticle.sourceNotice,
+                    author = fallback.author ?: fullArticle.author,
+                )
+                feedDao.update(entity.copy(cachedArticleJson = json.encodeToString(merged)))
+                merged
+            }
+            else -> fallback
         }
     }
 
@@ -126,7 +191,10 @@ class TechReaderRepository(
     }
 }
 
-private fun FeedItem.toEntity(json: Json): FeedItemEntity = FeedItemEntity(
+private fun FeedItem.toEntity(
+    json: Json,
+    cachedArticleJson: String? = null,
+): FeedItemEntity = FeedItemEntity(
     id = id,
     feedId = feedId,
     title = title,
@@ -137,12 +205,14 @@ private fun FeedItem.toEntity(json: Json): FeedItemEntity = FeedItemEntity(
     authorName = author?.displayName,
     authorProfileUrl = author?.profileUrl,
     publishedAt = publishedAt,
+    publishedAtEpoch = publishedAtEpoch,
     tagsJson = json.encodeToString(tags),
     hubsJson = json.encodeToString(hubs),
     rating = rating,
     commentsCount = commentsCount,
     isRead = isRead,
     isBookmarked = isBookmarked,
+    cachedArticleJson = cachedArticleJson,
     fetchedAt = System.currentTimeMillis(),
 )
 
@@ -158,6 +228,7 @@ private fun FeedItemEntity.toDomain(json: Json): FeedItem = FeedItem(
         Author(id = "author-${it.hashCode()}", displayName = it, profileUrl = authorProfileUrl)
     },
     publishedAt = publishedAt,
+    publishedAtEpoch = publishedAtEpoch,
     tags = json.decodeFromString(tagsJson),
     hubs = json.decodeFromString(hubsJson),
     rating = rating,

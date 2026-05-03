@@ -5,6 +5,7 @@ import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.InlineNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertIs
 
 class HtmlArticleParserTest {
@@ -72,6 +73,60 @@ class HtmlArticleParserTest {
 
         assertEquals("Ссылка", link.text)
         assertEquals("https://plugins.jetbrains.com/", link.url)
+    }
+
+    @Test
+    fun parsesCodeImagesOrderedListsAndIgnoresNoise() {
+        val blocks = HtmlArticleParser.parse(
+            """
+            <script>alert(1)</script>
+            <pre><code class="language-kotlin">fun main() = Unit</code></pre>
+            <img src="//habrastorage.org/image.png" alt="diagram">
+            <ol>
+                <li><strong>Step</strong> one</li>
+                <li><code>StepTwo()</code></li>
+            </ol>
+            """.trimIndent(),
+            baseUrl = "https://habr.com/ru/articles/42/",
+        )
+
+        val code = blocks[0] as ArticleBlock.CodeBlock
+        val image = blocks[1] as ArticleBlock.Image
+        val list = blocks[2] as ArticleBlock.ListBlock
+
+        assertEquals("kotlin", code.language)
+        assertEquals("fun main() = Unit", code.code)
+        assertEquals("https://habrastorage.org/image.png", image.url)
+        assertEquals("diagram", image.alt)
+        assertTrue(list.ordered)
+        assertEquals("Step one", (list.items.first().single() as ArticleBlock.Paragraph).inline.plain())
+    }
+
+    @Test
+    fun parsesPlainTextAsParagraphWhenThereAreNoElements() {
+        val blocks = HtmlArticleParser.parse("plain text only")
+
+        assertEquals("plain text only", (blocks.single() as ArticleBlock.Paragraph).inline.plain())
+    }
+
+    @Test
+    fun parsesDetailsAsSpoilerWithoutDuplicatingSummary() {
+        val blocks = HtmlArticleParser.parse(
+            """
+            <details>
+                <summary>Show setup</summary>
+                <p>Hidden paragraph</p>
+                <pre><code class="language-kotlin">val answer = 42</code></pre>
+            </details>
+            """.trimIndent(),
+        )
+
+        val spoiler = blocks.single() as ArticleBlock.Spoiler
+
+        assertEquals("Show setup", spoiler.title)
+        assertEquals(2, spoiler.blocks.size)
+        assertEquals("Hidden paragraph", (spoiler.blocks.first() as ArticleBlock.Paragraph).inline.plain())
+        assertEquals("val answer = 42", (spoiler.blocks.last() as ArticleBlock.CodeBlock).code)
     }
 }
 

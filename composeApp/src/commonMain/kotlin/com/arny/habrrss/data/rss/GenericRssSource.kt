@@ -22,6 +22,7 @@ class GenericRssSource(
         )
     }
 
+    @Deprecated("Use ArticleContentSource instead", ReplaceWith("ArticleContentSource"))
     override suspend fun getArticle(articleId: String): ArticleContent {
         throw SourceUnavailableException("Generic RSS article body loading is not implemented yet.")
     }

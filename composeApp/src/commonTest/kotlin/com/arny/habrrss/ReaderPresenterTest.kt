@@ -3,12 +3,15 @@ package com.arny.habrrss
 import com.arny.habrrss.data.database.InMemoryFeedDao
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.domain.usecases.GetFeedsUseCase
+import com.arny.habrrss.domain.usecases.HasMorePagesUseCase
+import com.arny.habrrss.domain.usecases.LoadNextPageUseCase
 import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
 import com.arny.habrrss.presentation.FeedCardMode
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderPresenter
+import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -105,6 +108,59 @@ class ReaderPresenterTest {
     }
 
     @Test
+    fun favoriteHubsAndPublicationSectionsCanBeToggled() = runTest {
+        val presenter = createPresenter()
+        presenter.start()
+        kotlinx.coroutines.delay(100)
+
+        presenter.toggleFavoriteHub("android")
+        presenter.selectPublicationSection(HabrPublicationSection.Hubs)
+
+        val state = presenter.state.value
+        assertEquals(setOf("android"), state.favoriteHubIds)
+        assertEquals(listOf("Android"), state.favoriteHubs.map { it.second })
+        assertEquals(HabrPublicationSection.Hubs, state.selectedPublicationSection)
+        assertFalse(state.isArticleOpen)
+
+        presenter.toggleFavoriteHub("android")
+
+        assertTrue(presenter.state.value.favoriteHubIds.isEmpty())
+    }
+
+    @Test
+    fun selectingHubFromHubCatalogReturnsToArticleFeedWithFilter() = runTest {
+        val presenter = createPresenter()
+        presenter.start()
+        kotlinx.coroutines.delay(100)
+
+        presenter.selectPublicationSection(HabrPublicationSection.Hubs)
+        presenter.selectHub("android")
+
+        val state = presenter.state.value
+        assertEquals(HabrPublicationSection.Articles, state.selectedPublicationSection)
+        assertEquals("android", state.selectedHubId)
+        assertEquals(listOf("kotlin"), state.visibleItems.map { it.id })
+        assertFalse(state.isArticleOpen)
+    }
+
+    @Test
+    fun selectDestinationKeepsArticleOpenOnlyForFeedLikeScreens() = runTest {
+        val presenter = createPresenter()
+        presenter.start()
+        kotlinx.coroutines.delay(100)
+        presenter.selectArticle("kotlin")
+        kotlinx.coroutines.delay(100)
+
+        presenter.selectDestination(ReaderDestination.Search)
+        assertFalse(presenter.state.value.isArticleOpen)
+
+        presenter.selectArticle("compose")
+        kotlinx.coroutines.delay(100)
+        presenter.selectDestination(ReaderDestination.Bookmarks)
+        assertTrue(presenter.state.value.isArticleOpen)
+    }
+
+    @Test
     fun unreadFilterCardModeAndReadingSettingsUpdateState() = runTest {
         val presenter = createPresenter()
         presenter.start()
@@ -133,6 +189,8 @@ class ReaderPresenterTest {
             refreshFeed = RefreshFeedUseCase(repository),
             openArticle = OpenArticleUseCase(repository),
             toggleBookmark = ToggleBookmarkUseCase(repository),
+            loadNextPage = LoadNextPageUseCase(repository),
+            hasMorePages = HasMorePagesUseCase(repository),
         )
     }
 }

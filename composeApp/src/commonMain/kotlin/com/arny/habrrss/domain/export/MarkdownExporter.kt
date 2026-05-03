@@ -34,6 +34,13 @@ class MarkdownExporter {
             }
             is ArticleBlock.Paragraph -> appendLine(block.inline.markdown())
             is ArticleBlock.Quote -> block.blocks.forEach { appendLine("> ${it.plainText()}") }
+            is ArticleBlock.Spoiler -> {
+                appendLine("<details>")
+                appendLine("<summary>${block.title}</summary>")
+                appendLine()
+                block.blocks.forEach { appendBlock(it) }
+                appendLine("</details>")
+            }
             is ArticleBlock.TableBlock -> appendLine(block.plainText())
             is ArticleBlock.UnknownHtml -> appendLine(block.html)
         }
@@ -56,6 +63,7 @@ class MarkdownExporter {
         is ArticleBlock.ListBlock -> items.flatten().joinToString(" ") { it.plainText() }
         is ArticleBlock.Paragraph -> inline.markdown()
         is ArticleBlock.Quote -> blocks.joinToString(" ") { it.plainText() }
+        is ArticleBlock.Spoiler -> blocks.joinToString(" ") { it.plainText() }
         is ArticleBlock.TableBlock -> rows.flatten().flatten().joinToString(" ") { it.plainText() }
         is ArticleBlock.UnknownHtml -> html
     }

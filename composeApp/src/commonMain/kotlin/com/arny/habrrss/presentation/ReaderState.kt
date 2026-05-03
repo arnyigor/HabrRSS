@@ -5,6 +5,7 @@ import com.arny.habrrss.domain.models.CachePolicy
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedSettings
+import com.arny.habrrss.presentation.feed.HabrPublicationSection
 
 data class ReaderUiState(
     val destinations: List<ReaderDestination> = ReaderDestination.entries,
@@ -17,6 +18,8 @@ data class ReaderUiState(
     val isArticleOpen: Boolean = false,
     val selectedHubId: String? = null,
     val selectedTagId: String? = null,
+    val selectedPublicationSection: HabrPublicationSection = HabrPublicationSection.Articles,
+    val favoriteHubIds: Set<String> = emptySet(),
     val favoriteTagIds: Set<String> = emptySet(),
     val searchQuery: String = "",
     val showUnreadOnly: Boolean = false,
@@ -51,7 +54,7 @@ data class ReaderUiState(
                 }
                 .let { filtered ->
                     when (feedSortMode) {
-                        FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAt.orEmpty() }
+                        FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
                         FeedSortMode.Rating -> filtered.sortedByDescending {
                             it.rating?.filter(Char::isDigit)?.toIntOrNull() ?: 0
                         }
@@ -73,6 +76,12 @@ data class ReaderUiState(
             .filter { favoriteTagIds.contains(it.first) }
             .sortedBy { it.second.lowercase() }
 
+    val favoriteHubs: List<Pair<String, String>>
+        get() = items.flatMap { item -> item.hubs.map { it.id to it.title } }
+            .distinctBy { it.first }
+            .filter { favoriteHubIds.contains(it.first) }
+            .sortedBy { it.second.lowercase() }
+
     val availableHubs: List<String>
         get() = items.flatMap { item -> item.hubs.map { it.id to it.title } }
             .distinctBy { it.first }
@@ -82,6 +91,11 @@ data class ReaderUiState(
         get() = items.flatMap { item -> item.tags.map { it.id to it.title } }
             .distinctBy { it.first }
             .map { it.second }
+
+    val availableAuthors: List<Pair<String, String>>
+        get() = items.mapNotNull { item -> item.author?.let { it.id to it.displayName } }
+            .distinctBy { it.first }
+            .sortedBy { it.second.lowercase() }
 
     val selectedFeedTitle: String
         get() = feeds.firstOrNull { it.id == activeFeedId }?.title ?: "Лента"

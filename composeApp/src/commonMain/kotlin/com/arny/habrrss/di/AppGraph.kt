@@ -2,42 +2,45 @@ package com.arny.habrrss.di
 
 import com.arny.habrrss.core.network.createHttpClient
 import com.arny.habrrss.data.api.HabrApiSource
-import com.arny.habrrss.data.database.AppDatabase
-import com.arny.habrrss.data.database.FeedDao
-import com.arny.habrrss.data.database.InMemoryFeedDao
-import com.arny.habrrss.data.database.RoomFeedDao
-import com.arny.habrrss.data.database.getDatabaseBuilder
+import com.arny.habrrss.data.article.HabrArticleContentSource
+import com.arny.habrrss.data.database.createPlatformFeedDao
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.data.rss.HabrRssSource
 import com.arny.habrrss.domain.usecases.GetFeedsUseCase
+import com.arny.habrrss.domain.usecases.HasMorePagesUseCase
+import com.arny.habrrss.domain.usecases.LoadNextPageUseCase
 import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
 import com.arny.habrrss.presentation.ReaderPresenter
+import io.ktor.client.HttpClient
 
+/**
+ * AppGraph - simplified local dev mode.
+ *
+ * Uses RoomFeedDao for persistent storage on both Android and Desktop.
+ * InMemoryFeedDao and FileBackedFeedDao are kept as fallbacks only.
+ * For production use AppContainer which always uses Room.
+ */
 object AppGraph {
-    // Platform-specific FeedDao initialization
-    private val feedDao: FeedDao by lazy {
-        try {
-            val db = getDatabaseBuilder().build()
-            RoomFeedDao(db.feedDao())
-        } catch (e: UnsupportedOperationException) {
-            // Desktop fallback - Room not supported
-            InMemoryFeedDao()
-        } catch (e: Exception) {
-            // Fallback to in-memory if Room fails (e.g., first run, migration issues)
-            InMemoryFeedDao()
-        }
+    // HttpClient with logging disabled for local dev
+    private val httpClient: HttpClient by lazy {
+        createHttpClient(enableLogging = false)
     }
-    
+
+    private val feedDao by lazy { createPlatformFeedDao() }
+
+    // Article content source
+    private val articleContentSource: HabrArticleContentSource by lazy {
+        HabrArticleContentSource(httpClient)
+    }
+
     fun createReaderPresenter(): ReaderPresenter {
-        // Note: enableLogging=true for debug builds only. 
-        // Set to false or use BuildConfig.DEBUG in production.
-        val httpClient = createHttpClient(enableLogging = true)
         val repository = TechReaderRepository(
             primarySource = HabrRssSource(httpClient),
             feedDao = feedDao,
+            articleContentSource = articleContentSource,
             secondarySources = listOf(
                 GenericRssSource(),
                 HabrApiSource(),
@@ -49,6 +52,12 @@ object AppGraph {
             refreshFeed = RefreshFeedUseCase(repository),
             openArticle = OpenArticleUseCase(repository),
             toggleBookmark = ToggleBookmarkUseCase(repository),
+            loadNextPage = LoadNextPageUseCase(repository),
+            hasMorePages = HasMorePagesUseCase(repository),
         )
+    }
+
+    fun close() {
+        httpClient.close()
     }
 }

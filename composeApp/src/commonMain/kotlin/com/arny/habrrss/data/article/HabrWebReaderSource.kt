@@ -6,11 +6,11 @@ import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.source.ArticleContentSource
 
 class HabrWebReaderSource : ArticleContentSource {
-    override suspend fun getArticle(articleUrl: String): ArticleContent {
+    override suspend fun getArticleByUrl(url: String): ArticleContent {
         return ArticleContent(
-            id = articleUrl,
+            id = url,
             title = "Open original article",
-            url = articleUrl,
+            url = url,
             imageUrl = null,
             author = null,
             publishedAt = null,

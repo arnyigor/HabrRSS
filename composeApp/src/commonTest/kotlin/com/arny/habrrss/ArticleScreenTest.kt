@@ -7,6 +7,12 @@ import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
+import com.arny.habrrss.ui.article.LINK_TAG
+import com.arny.habrrss.ui.article.markdownText
+import com.arny.habrrss.ui.article.normalizedExternalUrl
+import com.arny.habrrss.ui.article.plainText
+import com.arny.habrrss.ui.article.shareText
+import com.arny.habrrss.ui.article.toAnnotatedString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

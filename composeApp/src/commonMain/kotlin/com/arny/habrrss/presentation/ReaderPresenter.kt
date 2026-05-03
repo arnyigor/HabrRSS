@@ -1,12 +1,17 @@
 package com.arny.habrrss.presentation
 
 import com.arny.habrrss.data.repository.TechReaderRepository
+import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.usecases.GetFeedsUseCase
+import com.arny.habrrss.domain.usecases.HasMorePagesUseCase
+import com.arny.habrrss.domain.usecases.LoadNextPageUseCase
 import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
+import com.arny.habrrss.presentation.feed.HabrPublicationSection
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -17,6 +22,8 @@ class ReaderPresenter(
     private val refreshFeed: RefreshFeedUseCase,
     private val openArticle: OpenArticleUseCase,
     private val toggleBookmark: ToggleBookmarkUseCase,
+    private val loadNextPage: LoadNextPageUseCase,
+    private val hasMorePages: HasMorePagesUseCase,
 ) {
     private val mutableState = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = mutableState
@@ -52,6 +59,10 @@ class ReaderPresenter(
                     isArticleOpen = false,
                     selectedHubId = null,
                     selectedTagId = null,
+                    selectedPublicationSection = feeds.firstOrNull { feed -> feed.id == activeFeedId }
+                        ?.kind
+                        ?.toPublicationSection()
+                        ?: HabrPublicationSection.Articles,
                     feedLoading = false,
                     errorMessage = null,
                 )
@@ -84,11 +95,47 @@ class ReaderPresenter(
                     isArticleOpen = false,
                     selectedHubId = null,
                     selectedTagId = null,
+                    selectedPublicationSection = it.feeds.firstOrNull { feed -> feed.id == feedId }
+                        ?.kind
+                        ?.toPublicationSection()
+                        ?: HabrPublicationSection.Articles,
                     selectedDestination = ReaderDestination.Feed,
                     errorMessage = null,
                 )
             }
         }
+    }
+
+    /**
+     * Load more items for infinite scroll pagination.
+     * Returns true if more items were loaded, false if no more pages.
+     */
+    suspend fun loadMoreItems(): Boolean {
+        val feedId = mutableState.value.activeFeedId ?: return false
+        if (!hasMorePages(feedId)) return false
+
+        var loaded = false
+        runLoading {
+            val nextPage = loadNextPage(feedId)
+            if (nextPage != null) {
+                mutableState.update { state ->
+                    state.copy(
+                        items = state.items + nextPage.items,
+                        errorMessage = null,
+                    )
+                }
+                loaded = true
+            }
+        }
+        return loaded
+    }
+
+    /**
+     * Check if more pages are available for current feed
+     */
+    fun canLoadMore(): Boolean {
+        val feedId = mutableState.value.activeFeedId ?: return false
+        return hasMorePages(feedId)
     }
 
     suspend fun selectArticle(articleId: String) {
@@ -132,6 +179,7 @@ class ReaderPresenter(
             it.copy(
                 selectedHubId = if (it.selectedHubId == hubId) null else hubId,
                 selectedTagId = null,
+                selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
             )
@@ -143,6 +191,7 @@ class ReaderPresenter(
             it.copy(
                 selectedTagId = if (it.selectedTagId == tagId) null else tagId,
                 selectedHubId = null,
+                selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
             )
@@ -157,6 +206,30 @@ class ReaderPresenter(
                 state.favoriteTagIds + tagId
             }
             state.copy(favoriteTagIds = favoriteTagIds)
+        }
+    }
+
+    fun toggleFavoriteHub(hubId: String) {
+        mutableState.update { state ->
+            val favoriteHubIds = if (state.favoriteHubIds.contains(hubId)) {
+                state.favoriteHubIds - hubId
+            } else {
+                state.favoriteHubIds + hubId
+            }
+            state.copy(favoriteHubIds = favoriteHubIds)
+        }
+    }
+
+    fun selectPublicationSection(section: HabrPublicationSection) {
+        mutableState.update {
+            it.copy(
+                selectedPublicationSection = section,
+                selectedDestination = ReaderDestination.Feed,
+                isArticleOpen = false,
+                selectedHubId = null,
+                selectedTagId = null,
+                searchQuery = "",
+            )
         }
     }
 
@@ -219,8 +292,12 @@ class ReaderPresenter(
         mutableState.update { it.copy(isRefreshing = true, errorMessage = null) }
         try {
             block()
-        } catch (error: Throwable) {
-            mutableState.update { it.copy(errorMessage = error.message ?: "Unknown error") }
+        } catch (e: CancellationException) {
+            // Re-throw cancellation to allow proper coroutine cancellation
+            mutableState.update { it.copy(isRefreshing = false) }
+            throw e
+        } catch (e: Exception) {
+            mutableState.update { it.copy(errorMessage = e.message ?: "Ошибка загрузки") }
         } finally {
             mutableState.update { it.copy(isRefreshing = false) }
         }
@@ -231,5 +308,16 @@ class ReaderPresenter(
         return items.map { item ->
             if (item.id == selectedId) item.copy(isRead = true) else item
         }
+    }
+
+    private fun FeedKind.toPublicationSection(): HabrPublicationSection = when (this) {
+        FeedKind.All,
+        FeedKind.Best,
+        FeedKind.Hub,
+        FeedKind.Tag,
+        FeedKind.Search,
+        FeedKind.Custom -> HabrPublicationSection.Articles
+        FeedKind.Posts -> HabrPublicationSection.Posts
+        FeedKind.News -> HabrPublicationSection.News
     }
 }

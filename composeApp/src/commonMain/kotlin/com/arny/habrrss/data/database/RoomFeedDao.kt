@@ -27,6 +27,9 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun search(query: String): List<FeedItemEntity> =
         feedDao.search(query)
 
+    override suspend fun searchFts(query: String): List<FeedItemEntity> =
+        feedDao.searchFts(query)
+
     override suspend fun insertAll(items: List<FeedItemEntity>) =
         feedDao.insertAll(items)
 

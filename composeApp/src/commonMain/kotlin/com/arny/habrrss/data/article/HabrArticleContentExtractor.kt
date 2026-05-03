@@ -93,6 +93,7 @@ class HabrArticleContentExtractor {
             is ArticleBlock.ListBlock -> items.flatten().sumOf { it.blockTextLength() }
             is ArticleBlock.Paragraph -> inline.inlineTextLength()
             is ArticleBlock.Quote -> blocks.sumOf { it.blockTextLength() }
+            is ArticleBlock.Spoiler -> blocks.sumOf { it.blockTextLength() }
             is ArticleBlock.TableBlock -> rows.flatten().flatten().sumOf { it.blockTextLength() }
             is ArticleBlock.UnknownHtml -> html.length
         }

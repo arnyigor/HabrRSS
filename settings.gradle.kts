@@ -25,6 +25,8 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        // JetBrains AndroidX artifacts for KMP
+        maven("https://maven.pkg.jetbrains.space/public/p/androidx-compose-compiler/androidx")
     }
 }
 
