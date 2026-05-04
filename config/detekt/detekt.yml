@@ -3,7 +3,12 @@ config:
 
 complexity:
   LongMethod:
-    active: false
+    active: true
+    threshold: 120
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 35
+    ignoreSimpleWhenEntries: true
   TooManyFunctions:
     active: false
   ReturnCount:
@@ -13,7 +18,8 @@ exceptions:
   SwallowedException:
     active: false
   TooGenericExceptionCaught:
-    active: false
+    active: true
+    allowedExceptionNameRegex: "_|(ignore|expected).*"
 
 naming:
   FunctionNaming:
@@ -23,9 +29,41 @@ naming:
 
 style:
   MagicNumber:
-    active: false
+    active: true
+    ignoreHashCodeFunction: true
+    ignoreConstantDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+      - '3'
+      - '4'
+      - '8'
+      - '10'
+      - '12'
+      - '14'
+      - '16'
+      - '18'
+      - '20'
+      - '22'
+      - '24'
+      - '26'
+      - '32'
+      - '44'
+      - '80'
+      - '100'
+      - '180'
+      - '256'
+      - '420'
+      - '860'
+    ignoreAnnotated:
+      - 'Composable'
+      - 'Preview'
   MaxLineLength:
-    active: false
+    active: true
+    maxLineLength: 160
   NewLineAtEndOfFile:
     active: false
   UnusedParameter:

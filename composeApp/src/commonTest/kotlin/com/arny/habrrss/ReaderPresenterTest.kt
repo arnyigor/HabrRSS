@@ -12,6 +12,7 @@ import com.arny.habrrss.presentation.FeedCardMode
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderPresenter
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,7 +34,7 @@ class ReaderPresenterTest {
 
         presenter.start()
         // Wait for async loading
-        kotlinx.coroutines.delay(200)
+        advanceUntilIdle()
 
         val state = presenter.state.value
         println("DEBUG: items=${state.items.size}, feeds=${state.feeds.size}, activeFeedId=${state.activeFeedId}, error=${state.errorMessage}")
@@ -48,9 +49,9 @@ class ReaderPresenterTest {
         val presenter = createPresenter()
 
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
         presenter.selectArticle("kotlin")
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         val state = presenter.state.value
         assertTrue(state.isArticleOpen)
@@ -62,7 +63,7 @@ class ReaderPresenterTest {
     fun filtersByHubTagAndSearchQuery() = runTest {
         val presenter = createPresenter()
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         presenter.selectHub("android")
         assertEquals(listOf("kotlin"), presenter.state.value.visibleItems.map { it.id })
@@ -95,7 +96,7 @@ class ReaderPresenterTest {
     fun favoriteTagsCanBeToggled() = runTest {
         val presenter = createPresenter()
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         presenter.toggleFavoriteTag("compose")
 
@@ -111,7 +112,7 @@ class ReaderPresenterTest {
     fun favoriteHubsAndPublicationSectionsCanBeToggled() = runTest {
         val presenter = createPresenter()
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         presenter.toggleFavoriteHub("android")
         presenter.selectPublicationSection(HabrPublicationSection.Hubs)
@@ -131,7 +132,7 @@ class ReaderPresenterTest {
     fun selectingHubFromHubCatalogReturnsToArticleFeedWithFilter() = runTest {
         val presenter = createPresenter()
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         presenter.selectPublicationSection(HabrPublicationSection.Hubs)
         presenter.selectHub("android")
@@ -147,9 +148,9 @@ class ReaderPresenterTest {
     fun selectDestinationKeepsArticleOpenOnlyForFeedLikeScreens() = runTest {
         val presenter = createPresenter()
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
         presenter.selectArticle("kotlin")
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         presenter.selectDestination(ReaderDestination.Search)
         assertFalse(presenter.state.value.isArticleOpen)
@@ -164,9 +165,9 @@ class ReaderPresenterTest {
     fun unreadFilterCardModeAndReadingSettingsUpdateState() = runTest {
         val presenter = createPresenter()
         presenter.start()
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
         presenter.selectArticle("kotlin")
-        kotlinx.coroutines.delay(100)
+        advanceUntilIdle()
 
         presenter.closeArticle()
         presenter.setShowUnreadOnly(true)

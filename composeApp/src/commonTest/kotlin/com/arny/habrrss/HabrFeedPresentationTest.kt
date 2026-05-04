@@ -31,6 +31,7 @@ class HabrFeedPresentationTest {
             ),
             activeFeedId = "habr-all",
             items = listOf(item("one"), item("two")),
+            visibleItems = listOf(item("one"), item("two")),
         )
 
         val tabs = state.habrFeedTabs()

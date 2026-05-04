@@ -6,7 +6,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [FeedItemEntity::class],
     version = 2,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun feedDao(): FeedDao

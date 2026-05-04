@@ -20,6 +20,8 @@ import com.fleeksoft.ksoup.parser.Parser
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import kotlinx.datetime.Month
+import kotlinx.datetime.toInstant
 
 class HabrRssSource(
     private val client: HttpClient,
@@ -270,15 +272,13 @@ class HabrRssSource(
 
     /**
      * Parses RFC 822 / RFC 1123 date string to epoch milliseconds.
+     * Uses kotlinx-datetime for KMP compatibility.
      * Examples: "Sat, 02 May 2026 10:00:00 GMT", "Wed, 02 Apr 2025 14:30:00 +0300"
      */
     private fun String.parseRfc822Date(): Long? {
         return try {
-            // Common RSS date formats
             val patterns = listOf(
-                // "Sat, 02 May 2026 10:00:00 GMT"
                 Regex("""(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(\w+)?"""),
-                // "02 May 2026 10:00:00"
                 Regex("""(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})"""),
             )
 
@@ -295,13 +295,17 @@ class HabrRssSource(
                     val tz = groups.getOrNull(7) ?: "GMT"
 
                     val month = monthStr.toMonthNumber() ?: continue
-                    val timezoneOffset = tz.toTimezoneOffset()
+                    val timeZone = tz.toTimeZone()
 
-                    val calendar = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
-                    calendar.set(year, month, day, hour, minute, second)
-                    calendar.set(java.util.Calendar.MILLISECOND, 0)
-                    calendar.add(java.util.Calendar.ZONE_OFFSET, timezoneOffset)
-                    return calendar.timeInMillis
+                    val localDateTime = kotlinx.datetime.LocalDateTime(
+                        year = year,
+                        month = Month(month),
+                        day = day,
+                        hour = hour,
+                        minute = minute,
+                        second = second,
+                    )
+                    return localDateTime.toInstant(timeZone).toEpochMilliseconds()
                 }
             }
             null
@@ -312,34 +316,34 @@ class HabrRssSource(
 
     private fun String.toMonthNumber(): Int? {
         return when (uppercase()) {
-            "JAN" -> 0
-            "FEB" -> 1
-            "MAR" -> 2
-            "APR" -> 3
-            "MAY" -> 4
-            "JUN" -> 5
-            "JUL" -> 6
-            "AUG" -> 7
-            "SEP" -> 8
-            "OCT" -> 9
-            "NOV" -> 10
-            "DEC" -> 11
+            "JAN" -> 1
+            "FEB" -> 2
+            "MAR" -> 3
+            "APR" -> 4
+            "MAY" -> 5
+            "JUN" -> 6
+            "JUL" -> 7
+            "AUG" -> 8
+            "SEP" -> 9
+            "OCT" -> 10
+            "NOV" -> 11
+            "DEC" -> 12
             else -> null
         }
     }
 
-    private fun String.toTimezoneOffset(): Int {
+    private fun String.toTimeZone(): kotlinx.datetime.TimeZone {
         return when (uppercase()) {
-            "GMT", "UTC", "Z" -> 0
-            "EST" -> -5 * 3600000
-            "EDT" -> -4 * 3600000
-            "CST" -> -6 * 3600000
-            "CDT" -> -5 * 3600000
-            "MST" -> -7 * 3600000
-            "MDT" -> -6 * 3600000
-            "PST" -> -8 * 3600000
-            "PDT" -> -7 * 3600000
-            else -> 0
+            "GMT", "UTC", "Z" -> kotlinx.datetime.TimeZone.UTC
+            "EST" -> kotlinx.datetime.TimeZone.of("UTC-05:00")
+            "EDT" -> kotlinx.datetime.TimeZone.of("UTC-04:00")
+            "CST" -> kotlinx.datetime.TimeZone.of("UTC-06:00")
+            "CDT" -> kotlinx.datetime.TimeZone.of("UTC-05:00")
+            "MST" -> kotlinx.datetime.TimeZone.of("UTC-07:00")
+            "MDT" -> kotlinx.datetime.TimeZone.of("UTC-06:00")
+            "PST" -> kotlinx.datetime.TimeZone.of("UTC-08:00")
+            "PDT" -> kotlinx.datetime.TimeZone.of("UTC-07:00")
+            else -> kotlinx.datetime.TimeZone.UTC
         }
     }
 }

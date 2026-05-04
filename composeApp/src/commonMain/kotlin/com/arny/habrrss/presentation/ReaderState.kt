@@ -13,6 +13,7 @@ data class ReaderUiState(
     val feeds: List<FeedDescriptor> = emptyList(),
     val activeFeedId: String? = null,
     val items: List<FeedItem> = emptyList(),
+    val visibleItems: List<FeedItem> = emptyList(),
     val selectedArticleId: String? = null,
     val article: ArticleContent? = null,
     val isArticleOpen: Boolean = false,
@@ -31,36 +32,6 @@ data class ReaderUiState(
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),
 ) {
-    val visibleItems: List<FeedItem>
-        get() {
-            val sectionItems = when (selectedDestination) {
-            ReaderDestination.Bookmarks -> items.filter { it.isBookmarked }
-            ReaderDestination.Search -> items
-            ReaderDestination.Feed,
-            ReaderDestination.Sources,
-            ReaderDestination.Settings -> items
-            }
-            return sectionItems
-                .filter { item -> !showUnreadOnly || !item.isRead }
-                .filter { item -> selectedHubId == null || item.hubs.any { it.id == selectedHubId } }
-                .filter { item -> selectedTagId == null || item.tags.any { it.id == selectedTagId } }
-                .filter { item ->
-                    searchQuery.isBlank() ||
-                        item.title.contains(searchQuery, ignoreCase = true) ||
-                        item.summary.contains(searchQuery, ignoreCase = true) ||
-                        item.tags.any { it.title.contains(searchQuery, ignoreCase = true) } ||
-                        item.hubs.any { it.title.contains(searchQuery, ignoreCase = true) } ||
-                        item.author?.displayName?.contains(searchQuery, ignoreCase = true) == true
-                }
-                .let { filtered ->
-                    when (feedSortMode) {
-                        FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
-                        FeedSortMode.Rating -> filtered.sortedByDescending {
-                            it.rating?.filter(Char::isDigit)?.toIntOrNull() ?: 0
-                        }
-                    }
-                }
-        }
 
     val activeFilterCount: Int
         get() = listOf(

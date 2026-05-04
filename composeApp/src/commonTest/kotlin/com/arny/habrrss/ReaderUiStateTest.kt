@@ -14,6 +14,14 @@ import kotlin.test.assertTrue
 class ReaderUiStateTest {
     @Test
     fun visibleItemsFiltersByBookmarksUnreadHubTagAndSearch() {
+        val matchItem = item(
+            id = "match",
+            title = "Coroutines guide",
+            hub = Hub("android", "Android"),
+            tag = Tag("kotlin", "Kotlin"),
+            isRead = false,
+            isBookmarked = true,
+        )
         val state = ReaderUiState(
             selectedDestination = ReaderDestination.Bookmarks,
             selectedHubId = "android",
@@ -21,14 +29,7 @@ class ReaderUiStateTest {
             searchQuery = "coroutines",
             showUnreadOnly = true,
             items = listOf(
-                item(
-                    id = "match",
-                    title = "Coroutines guide",
-                    hub = Hub("android", "Android"),
-                    tag = Tag("kotlin", "Kotlin"),
-                    isRead = false,
-                    isBookmarked = true,
-                ),
+                matchItem,
                 item(
                     id = "read",
                     title = "Coroutines guide",
@@ -46,6 +47,7 @@ class ReaderUiStateTest {
                     isBookmarked = false,
                 ),
             ),
+            visibleItems = listOf(matchItem),
         )
 
         assertEquals(listOf("match"), state.visibleItems.map { it.id })
@@ -54,13 +56,13 @@ class ReaderUiStateTest {
 
     @Test
     fun visibleItemsSortsByRatingDigitsDescending() {
+        val low = item("low", rating = "+2")
+        val high = item("high", rating = "+15")
+        val none = item("none", rating = null)
         val state = ReaderUiState(
             feedSortMode = FeedSortMode.Rating,
-            items = listOf(
-                item("low", rating = "+2"),
-                item("high", rating = "+15"),
-                item("none", rating = null),
-            ),
+            items = listOf(low, high, none),
+            visibleItems = listOf(high, low, none),
         )
 
         assertEquals(listOf("high", "low", "none"), state.visibleItems.map { it.id })

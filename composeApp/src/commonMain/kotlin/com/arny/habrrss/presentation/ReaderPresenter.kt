@@ -37,7 +37,7 @@ class ReaderPresenter(
             // Try to load from cache first
             val cached = repository.getCachedFeed(activeFeedId)
             if (cached.isNotEmpty()) {
-                mutableState.update {
+                updateState {
                     it.copy(
                         feeds = feeds,
                         activeFeedId = activeFeedId,
@@ -49,7 +49,7 @@ class ReaderPresenter(
             
             // Then refresh from network
             val page = refreshFeed(activeFeedId)
-            mutableState.update {
+            updateState {
                 it.copy(
                     feeds = feeds,
                     activeFeedId = activeFeedId,
@@ -74,7 +74,7 @@ class ReaderPresenter(
         val feedId = mutableState.value.activeFeedId ?: return
         runLoading {
             val page = refreshFeed(feedId)
-            mutableState.update {
+            updateState {
                 it.copy(
                     items = mergeSelection(page.items),
                     errorMessage = null,
@@ -86,7 +86,7 @@ class ReaderPresenter(
     suspend fun selectFeed(feedId: String) {
         runLoading {
             val page = refreshFeed(feedId)
-            mutableState.update {
+            updateState {
                 it.copy(
                     activeFeedId = feedId,
                     items = page.items,
@@ -118,7 +118,7 @@ class ReaderPresenter(
         runLoading {
             val nextPage = loadNextPage(feedId)
             if (nextPage != null) {
-                mutableState.update { state ->
+                updateState { state ->
                     state.copy(
                         items = state.items + nextPage.items,
                         errorMessage = null,
@@ -144,7 +144,7 @@ class ReaderPresenter(
             // Reload cache to get updated read state
             val feedId = mutableState.value.activeFeedId ?: ""
             val items = repository.getCachedFeed(feedId)
-            mutableState.update {
+            updateState {
                 it.copy(
                     selectedArticleId = articleId,
                     article = article,
@@ -158,7 +158,7 @@ class ReaderPresenter(
     }
 
     fun selectDestination(destination: ReaderDestination) {
-        mutableState.update {
+        updateState {
             it.copy(
                 selectedDestination = destination,
                 isArticleOpen = if (destination == ReaderDestination.Feed || destination == ReaderDestination.Bookmarks) {
@@ -171,11 +171,11 @@ class ReaderPresenter(
     }
 
     fun closeArticle() {
-        mutableState.update { it.copy(isArticleOpen = false) }
+        updateState { it.copy(isArticleOpen = false) }
     }
 
     fun selectHub(hubId: String?) {
-        mutableState.update {
+        updateState {
             it.copy(
                 selectedHubId = if (it.selectedHubId == hubId) null else hubId,
                 selectedTagId = null,
@@ -187,7 +187,7 @@ class ReaderPresenter(
     }
 
     fun selectTag(tagId: String?) {
-        mutableState.update {
+        updateState {
             it.copy(
                 selectedTagId = if (it.selectedTagId == tagId) null else tagId,
                 selectedHubId = null,
@@ -199,7 +199,7 @@ class ReaderPresenter(
     }
 
     fun toggleFavoriteTag(tagId: String) {
-        mutableState.update { state ->
+        updateState { state ->
             val favoriteTagIds = if (state.favoriteTagIds.contains(tagId)) {
                 state.favoriteTagIds - tagId
             } else {
@@ -210,7 +210,7 @@ class ReaderPresenter(
     }
 
     fun toggleFavoriteHub(hubId: String) {
-        mutableState.update { state ->
+        updateState { state ->
             val favoriteHubIds = if (state.favoriteHubIds.contains(hubId)) {
                 state.favoriteHubIds - hubId
             } else {
@@ -221,7 +221,7 @@ class ReaderPresenter(
     }
 
     fun selectPublicationSection(section: HabrPublicationSection) {
-        mutableState.update {
+        updateState {
             it.copy(
                 selectedPublicationSection = section,
                 selectedDestination = ReaderDestination.Feed,
@@ -234,7 +234,7 @@ class ReaderPresenter(
     }
 
     fun updateSearchQuery(query: String) {
-        mutableState.update {
+        updateState {
             it.copy(
                 searchQuery = query,
                 selectedHubId = null,
@@ -246,7 +246,7 @@ class ReaderPresenter(
     }
 
     fun clearFilters() {
-        mutableState.update {
+        updateState {
             it.copy(
                 selectedHubId = null,
                 selectedTagId = null,
@@ -258,7 +258,7 @@ class ReaderPresenter(
     }
 
     fun setShowUnreadOnly(showUnreadOnly: Boolean) {
-        mutableState.update {
+        updateState {
             it.copy(
                 showUnreadOnly = showUnreadOnly,
                 isArticleOpen = false,
@@ -267,15 +267,15 @@ class ReaderPresenter(
     }
 
     fun setFeedCardMode(mode: FeedCardMode) {
-        mutableState.update { it.copy(feedCardMode = mode) }
+        updateState { it.copy(feedCardMode = mode) }
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
-        mutableState.update { it.copy(feedSortMode = mode) }
+        updateState { it.copy(feedSortMode = mode) }
     }
 
     fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
-        mutableState.update { it.copy(settings = transform(it.settings)) }
+        updateState { it.copy(settings = transform(it.settings)) }
     }
 
     suspend fun toggleArticleBookmark(articleId: String) {
@@ -283,24 +283,61 @@ class ReaderPresenter(
         // Reload from cache
         val feedId = mutableState.value.activeFeedId ?: return
         val items = repository.getCachedFeed(feedId)
-        mutableState.update {
+        updateState {
             it.copy(items = items)
         }
     }
 
     private suspend fun runLoading(block: suspend () -> Unit) {
-        mutableState.update { it.copy(isRefreshing = true, errorMessage = null) }
+        updateState { it.copy(isRefreshing = true, errorMessage = null) }
         try {
             block()
         } catch (e: CancellationException) {
             // Re-throw cancellation to allow proper coroutine cancellation
-            mutableState.update { it.copy(isRefreshing = false) }
+            updateState { it.copy(isRefreshing = false) }
             throw e
         } catch (e: Exception) {
-            mutableState.update { it.copy(errorMessage = e.message ?: "Ошибка загрузки") }
+            updateState { it.copy(errorMessage = e.message ?: "Ошибка загрузки") }
         } finally {
-            mutableState.update { it.copy(isRefreshing = false) }
+            updateState { it.copy(isRefreshing = false) }
         }
+    }
+
+    private inline fun updateState(transform: (ReaderUiState) -> ReaderUiState) {
+        mutableState.update { current ->
+            val next = transform(current)
+            next.copy(visibleItems = computeVisibleItems(next))
+        }
+    }
+
+    private fun computeVisibleItems(state: ReaderUiState): List<FeedItem> {
+        val sectionItems = when (state.selectedDestination) {
+            ReaderDestination.Bookmarks -> state.items.filter { it.isBookmarked }
+            ReaderDestination.Search -> state.items
+            ReaderDestination.Feed,
+            ReaderDestination.Sources,
+            ReaderDestination.Settings -> state.items
+        }
+        return sectionItems
+            .filter { item -> !state.showUnreadOnly || !item.isRead }
+            .filter { item -> state.selectedHubId == null || item.hubs.any { it.id == state.selectedHubId } }
+            .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
+            .filter { item ->
+                state.searchQuery.isBlank() ||
+                    item.title.contains(state.searchQuery, ignoreCase = true) ||
+                    item.summary.contains(state.searchQuery, ignoreCase = true) ||
+                    item.tags.any { it.title.contains(state.searchQuery, ignoreCase = true) } ||
+                    item.hubs.any { it.title.contains(state.searchQuery, ignoreCase = true) } ||
+                    item.author?.displayName?.contains(state.searchQuery, ignoreCase = true) == true
+            }
+            .let { filtered ->
+                when (state.feedSortMode) {
+                    FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
+                    FeedSortMode.Rating -> filtered.sortedByDescending {
+                        it.rating?.filter(Char::isDigit)?.toIntOrNull() ?: 0
+                    }
+                }
+            }
     }
 
     private fun mergeSelection(items: List<FeedItem>): List<FeedItem> {

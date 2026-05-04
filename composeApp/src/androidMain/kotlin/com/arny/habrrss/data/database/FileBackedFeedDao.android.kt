@@ -38,9 +38,6 @@ class FileBackedFeedDao(
         }.sortedByDescending { it.publishedAt }
     }
 
-    // FTS not supported in file-based storage - fallback to LIKE search
-    override suspend fun searchFts(query: String): List<FeedItemEntity> = search(query)
-
     override suspend fun insertAll(items: List<FeedItemEntity>) {
         if (items.isEmpty()) return
         val newIds = items.map { it.id }.toHashSet()

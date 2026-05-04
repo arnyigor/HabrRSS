@@ -1,7 +1,9 @@
 package com.arny.habrrss.core.network
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpRequestRetry
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.cache.HttpCache
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
@@ -14,6 +16,11 @@ fun createHttpClient(enableLogging: Boolean = false): HttpClient {
             requestTimeoutMillis = 15_000
             connectTimeoutMillis = 10_000
         }
+        install(HttpRequestRetry) {
+            maxRetries = 3
+            exponentialDelay()
+        }
+        install(HttpCache)
         defaultRequest {
             headers {
                 append(HttpHeaders.UserAgent, "TechReader/1.0 KMP RSS Reader")

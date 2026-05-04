@@ -24,15 +24,6 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items WHERE isBookmarked = 1 ORDER BY publishedAtEpoch DESC NULLS LAST")
     suspend fun getBookmarksOnce(): List<FeedItemEntity>
 
-    // FTS-based search for fast full-text search
-    @Query("""
-        SELECT feed_items.* FROM feed_items
-        JOIN feed_items_fts ON feed_items.rowid = feed_items_fts.rowid
-        WHERE feed_items_fts MATCH :query
-        ORDER BY rank
-    """)
-    suspend fun searchFts(query: String): List<FeedItemEntity>
-
     // Fallback LIKE search for compatibility
     @Query("SELECT * FROM feed_items WHERE title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%' ORDER BY publishedAtEpoch DESC NULLS LAST")
     suspend fun search(query: String): List<FeedItemEntity>

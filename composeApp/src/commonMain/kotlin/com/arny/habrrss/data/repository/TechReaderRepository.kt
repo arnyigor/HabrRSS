@@ -15,6 +15,8 @@ import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
 class TechReaderRepository(
@@ -26,7 +28,7 @@ class TechReaderRepository(
     private val json = Json { ignoreUnknownKeys = true }
     private var cachedFeeds: List<FeedDescriptor> = emptyList()
     // Track next cursor per feed for pagination
-    private val feedCursors = mutableMapOf<String, PageCursor?>()
+    private val feedCursorsFlow = MutableStateFlow<Map<String, PageCursor?>>(emptyMap())
 
     suspend fun getFeeds(): List<FeedDescriptor> {
         if (cachedFeeds.isEmpty()) {
@@ -37,7 +39,7 @@ class TechReaderRepository(
 
     suspend fun refreshFeed(feedId: String): FeedPage {
         // Reset cursor for fresh load
-        feedCursors[feedId] = null
+        feedCursorsFlow.update { it + (feedId to null) }
 
         val page = primarySource.getItems(feedId, page = null)
         val items = page.items.map { item ->
@@ -56,7 +58,7 @@ class TechReaderRepository(
         feedDao.insertAll(entities)
 
         // Store cursor for next page
-        feedCursors[feedId] = page.nextCursor
+        feedCursorsFlow.update { it + (feedId to page.nextCursor) }
 
         return FeedPage(
             items = items,
@@ -71,7 +73,7 @@ class TechReaderRepository(
      * Returns null if there's no more pages (cursor is null).
      */
     suspend fun loadNextPage(feedId: String): FeedPage? {
-        val cursor = feedCursors[feedId] ?: return null
+        val cursor = feedCursorsFlow.value[feedId] ?: return null
 
         val page = primarySource.getItems(feedId, page = cursor)
         val items = page.items.map { item ->
@@ -90,7 +92,7 @@ class TechReaderRepository(
         feedDao.insertAll(entities)
 
         // Update cursor for next page
-        feedCursors[feedId] = page.nextCursor
+        feedCursorsFlow.update { it + (feedId to page.nextCursor) }
 
         return FeedPage(
             items = items,
@@ -103,7 +105,7 @@ class TechReaderRepository(
     /**
      * Check if more pages are available for a feed
      */
-    fun hasMorePages(feedId: String): Boolean = feedCursors[feedId] != null
+    fun hasMorePages(feedId: String): Boolean = feedCursorsFlow.value[feedId] != null
 
     suspend fun getCachedFeed(feedId: String): List<FeedItem> {
         return feedDao.getByFeedOnce(feedId).map { it.toDomain(json) }

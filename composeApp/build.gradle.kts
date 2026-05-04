@@ -107,6 +107,10 @@ tasks.withType<Detekt>().configureEach {
     exclude("**/generated/**")
 }
 
+dependencies {
+    ksp(libs.androidx.room.compiler)
+}
+
 android {
     namespace = "com.arny.habrrss"
     compileSdk = libs.versions.android.compileSdk.get().toInt()

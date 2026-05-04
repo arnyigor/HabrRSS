@@ -31,9 +31,6 @@ class InMemoryFeedDao : FeedDao {
         it.title.contains(query, ignoreCase = true) || it.summary.contains(query, ignoreCase = true)
     }
 
-    // FTS not supported in memory - fallback to LIKE search
-    override suspend fun searchFts(query: String): List<FeedItemEntity> = search(query)
-    
     // Fixed: O(n) instead of O(n²) - use HashSet for lookup
     // Note: parameter name 'items' matches FeedDao interface for compatibility
     override suspend fun insertAll(items: List<FeedItemEntity>) {
