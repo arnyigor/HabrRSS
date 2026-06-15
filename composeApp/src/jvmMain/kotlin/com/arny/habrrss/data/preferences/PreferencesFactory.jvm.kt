@@ -21,25 +21,50 @@ class FilePreferencesRepository(
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
-    private val _preferences = MutableStateFlow(loadPreferences())
+    private val _data = MutableStateFlow(loadData())
+    private val _preferences = MutableStateFlow(_data.value.toFeedSettings())
+    private val _favoriteHubIds = MutableStateFlow(_data.value.favoriteHubIds)
+    private val _favoriteTagIds = MutableStateFlow(_data.value.favoriteTagIds)
+    private val _customFeeds = MutableStateFlow(_data.value.customFeeds)
 
-    private fun loadPreferences(): FeedSettings {
-        if (!file.exists()) return FeedSettings.defaults()
+    private fun loadData(): PreferencesData {
+        if (!file.exists()) return PreferencesData()
         return try {
-            json.decodeFromString<PreferencesData>(file.readText()).toFeedSettings()
+            json.decodeFromString<PreferencesData>(file.readText())
         } catch (e: Exception) {
-            FeedSettings.defaults()
+            PreferencesData()
         }
     }
 
-    private fun savePreferences(settings: FeedSettings) {
+    private fun saveData(data: PreferencesData) {
         file.parentFile?.mkdirs()
-        val data = PreferencesData.fromFeedSettings(settings)
         file.writeText(json.encodeToString(data))
-        _preferences.value = settings
+        _data.value = data
+        _preferences.value = data.toFeedSettings()
+        _favoriteHubIds.value = data.favoriteHubIds
+        _favoriteTagIds.value = data.favoriteTagIds
+        _customFeeds.value = data.customFeeds
+    }
+
+    private fun savePreferences(settings: FeedSettings) {
+        saveData(
+            _data.value.copy(
+                themeMode = settings.themeMode.name,
+                fontScale = settings.fontScale,
+                lineHeightScale = settings.lineHeightScale,
+                compactCards = settings.compactCards,
+                openLinksInsideApp = settings.openLinksInsideApp,
+            )
+        )
     }
 
     override fun preferences(): Flow<FeedSettings> = _preferences.asStateFlow()
+
+    override fun favoriteHubIds(): Flow<Set<String>> = _favoriteHubIds.asStateFlow()
+
+    override fun favoriteTagIds(): Flow<Set<String>> = _favoriteTagIds.asStateFlow()
+
+    override fun customFeeds(): Flow<List<CustomFeedPreference>> = _customFeeds.asStateFlow()
 
     override suspend fun setFontScale(scale: Float) {
         savePreferences(_preferences.value.copy(fontScale = scale))
@@ -62,17 +87,24 @@ class FilePreferencesRepository(
     }
 
     override suspend fun setFavoriteHubIds(ids: Set<String>) {
-        // Store in file path - for now just save to main file
-        savePreferences(_preferences.value)
+        saveData(_data.value.copy(favoriteHubIds = ids))
     }
 
     override suspend fun setFavoriteTagIds(ids: Set<String>) {
-        savePreferences(_preferences.value)
+        saveData(_data.value.copy(favoriteTagIds = ids))
+    }
+
+    override suspend fun upsertCustomFeed(feed: CustomFeedPreference) {
+        saveData(_data.value.copy(customFeeds = _customFeeds.value.filterNot { it.id == feed.id } + feed))
+    }
+
+    override suspend fun removeCustomFeed(id: String) {
+        saveData(_data.value.copy(customFeeds = _customFeeds.value.filterNot { it.id == id }))
     }
 
     override suspend fun clear() {
         file.delete()
-        _preferences.value = FeedSettings.defaults()
+        saveData(PreferencesData())
     }
 
     @kotlinx.serialization.Serializable
@@ -82,6 +114,9 @@ class FilePreferencesRepository(
         val lineHeightScale: Float = 1.25f,
         val compactCards: Boolean = false,
         val openLinksInsideApp: Boolean = false,
+        val favoriteHubIds: Set<String> = emptySet(),
+        val favoriteTagIds: Set<String> = emptySet(),
+        val customFeeds: List<CustomFeedPreference> = emptyList(),
     ) {
         fun toFeedSettings(): FeedSettings = FeedSettings(
             themeMode = try { ThemeMode.valueOf(themeMode) } catch (e: Exception) { ThemeMode.System },
@@ -93,15 +128,5 @@ class FilePreferencesRepository(
             autoRefreshMinutes = FeedSettings.defaults().autoRefreshMinutes,
             openLinksInsideApp = openLinksInsideApp,
         )
-
-        companion object {
-            fun fromFeedSettings(settings: FeedSettings): PreferencesData = PreferencesData(
-                themeMode = settings.themeMode.name,
-                fontScale = settings.fontScale,
-                lineHeightScale = settings.lineHeightScale,
-                compactCards = settings.compactCards,
-                openLinksInsideApp = settings.openLinksInsideApp,
-            )
-        }
     }
 }

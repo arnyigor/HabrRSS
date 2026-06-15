@@ -3,6 +3,7 @@ package com.arny.habrrss.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.tooling.preview.Preview
@@ -14,10 +15,16 @@ import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 @Preview
-fun App() {
+fun App(initialArticleUrl: String? = null) {
     val viewModel = koinViewModel<FeedViewModel>()
     val syncManager = koinInject<BackgroundSyncManager>()
     val state by viewModel.state.collectAsState()
+
+    LaunchedEffect(initialArticleUrl) {
+        if (!initialArticleUrl.isNullOrBlank()) {
+            viewModel.openArticleUrl(initialArticleUrl)
+        }
+    }
 
     DisposableEffect(syncManager) {
         syncManager.startPeriodicSync()

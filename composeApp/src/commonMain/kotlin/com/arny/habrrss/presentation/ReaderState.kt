@@ -15,6 +15,7 @@ data class ReaderUiState(
     val items: List<FeedItem> = emptyList(),
     val visibleItems: List<FeedItem> = emptyList(),
     val selectedArticleId: String? = null,
+    val selectedArticleBookmarked: Boolean = false,
     val article: ArticleContent? = null,
     val isArticleOpen: Boolean = false,
     val selectedHubId: String? = null,
@@ -29,6 +30,7 @@ data class ReaderUiState(
     val feedLoading: Boolean = false,
     val articleLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    val canLoadMore: Boolean = false,
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),
 ) {

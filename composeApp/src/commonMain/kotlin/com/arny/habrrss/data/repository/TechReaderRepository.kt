@@ -2,12 +2,16 @@ package com.arny.habrrss.data.repository
 
 import com.arny.habrrss.data.database.FeedDao
 import com.arny.habrrss.data.database.FeedItemEntity
+import com.arny.habrrss.data.preferences.CustomFeedPreference
+import com.arny.habrrss.data.preferences.UserPreferencesRepository
+import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.data.rss.HtmlArticleParser
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
+import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedPage
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.PageCursor
@@ -16,6 +20,7 @@ import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
@@ -24,15 +29,27 @@ class TechReaderRepository(
     private val feedDao: FeedDao,
     private val articleContentSource: ArticleContentSource? = null,
     private val secondarySources: List<FeedSource> = emptyList(),
+    private val customRssSource: GenericRssSource? = null,
+    private val preferencesRepository: UserPreferencesRepository? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var cachedFeeds: List<FeedDescriptor> = emptyList()
+    private var sourceByFeedId: Map<String, FeedSource> = emptyMap()
+    private val externalArticles = mutableMapOf<String, ArticleContent>()
     // Track next cursor per feed for pagination
     private val feedCursorsFlow = MutableStateFlow<Map<String, PageCursor?>>(emptyMap())
 
-    suspend fun getFeeds(): List<FeedDescriptor> {
-        if (cachedFeeds.isEmpty()) {
-            cachedFeeds = (listOf(primarySource) + secondarySources).flatMap { it.getFeeds() }
+    suspend fun getFeeds(forceRefresh: Boolean = false): List<FeedDescriptor> {
+        if (cachedFeeds.isEmpty() || forceRefresh) {
+            val sources = listOf(primarySource) + secondarySources
+            val fixedFeeds = sources.flatMap { it.getFeeds() }
+            val customFeeds = preferencesRepository?.customFeeds()?.first().orEmpty().map { it.toDescriptor() }
+            customRssSource?.setFeeds(customFeeds)
+            cachedFeeds = fixedFeeds + customFeeds
+            sourceByFeedId = buildMap {
+                sources.forEach { source -> source.getFeeds().forEach { put(it.id, source) } }
+                customFeeds.forEach { feed -> customRssSource?.let { put(feed.id, it) } }
+            }
         }
         return cachedFeeds
     }
@@ -41,14 +58,8 @@ class TechReaderRepository(
         // Reset cursor for fresh load
         feedCursorsFlow.update { it + (feedId to null) }
 
-        val page = primarySource.getItems(feedId, page = null)
-        val items = page.items.map { item ->
-            val existing = feedDao.getById(item.id)
-            item.copy(
-                isRead = existing?.isRead ?: item.isRead,
-                isBookmarked = existing?.isBookmarked ?: item.isBookmarked,
-            )
-        }
+        val page = sourceFor(feedId).getItems(feedId, page = null)
+        val items = page.items.withPersistedFlags()
         val entities = items.map { item ->
             item.toEntity(
                 json = json,
@@ -75,14 +86,8 @@ class TechReaderRepository(
     suspend fun loadNextPage(feedId: String): FeedPage? {
         val cursor = feedCursorsFlow.value[feedId] ?: return null
 
-        val page = primarySource.getItems(feedId, page = cursor)
-        val items = page.items.map { item ->
-            val existing = feedDao.getById(item.id)
-            item.copy(
-                isRead = existing?.isRead ?: item.isRead,
-                isBookmarked = existing?.isBookmarked ?: item.isBookmarked,
-            )
-        }
+        val page = sourceFor(feedId).getItems(feedId, page = cursor)
+        val items = page.items.withPersistedFlags()
         val entities = items.map { item ->
             item.toEntity(
                 json = json,
@@ -149,9 +154,23 @@ class TechReaderRepository(
         }
     }
 
+    suspend fun getArticleByUrl(url: String): ArticleContent {
+        val existing = feedDao.getByUrl(url) ?: feedDao.getByUrl(url.trimEnd('/'))
+        if (existing != null) return getArticle(existing.id)
+        val source = articleContentSource ?: throw SourceUnavailableException("Article source is not available.")
+        return source.getArticleByUrl(url).also { article ->
+            externalArticles[article.id] = article
+        }
+    }
+
     suspend fun toggleBookmark(articleId: String) {
-        val current = feedDao.getById(articleId)?.isBookmarked ?: false
-        feedDao.updateBookmark(articleId, !current)
+        val entity = feedDao.getById(articleId)
+        if (entity == null) {
+            val article = externalArticles[articleId] ?: return
+            feedDao.insertAll(listOf(article.toExternalEntity(json)))
+            return
+        }
+        feedDao.updateBookmark(articleId, !entity.isBookmarked)
     }
 
     suspend fun getBookmarks(): List<FeedItem> {
@@ -160,13 +179,54 @@ class TechReaderRepository(
 
     suspend fun search(query: String): List<FeedItem> {
         if (query.isBlank()) return emptyList()
-        return feedDao.search("%$query%").map { it.toDomain(json) }
+        return feedDao.search(query).map { it.toDomain(json) }
+    }
+
+    suspend fun upsertCustomFeed(id: String?, title: String, url: String) {
+        val feed = CustomFeedPreference(
+            id = id ?: "custom-${url.normalizedFeedUrl().hashCode()}",
+            title = title.ifBlank { url },
+            url = url.normalizedFeedUrl(),
+        )
+        preferencesRepository?.upsertCustomFeed(feed)
+        cachedFeeds = emptyList()
+        getFeeds(forceRefresh = true)
+    }
+
+    suspend fun removeCustomFeed(id: String) {
+        preferencesRepository?.removeCustomFeed(id)
+        cachedFeeds = emptyList()
+        getFeeds(forceRefresh = true)
     }
 
     fun requireFirstFeedId(): String {
         return cachedFeeds.firstOrNull()?.id
             ?: throw SourceUnavailableException("No feed descriptors are available.")
     }
+
+    private suspend fun sourceFor(feedId: String): FeedSource {
+        if (sourceByFeedId.isEmpty()) getFeeds(forceRefresh = true)
+        return sourceByFeedId[feedId] ?: primarySource
+    }
+
+    private suspend fun List<FeedItem>.withPersistedFlags(): List<FeedItem> = map { item ->
+        val existing = feedDao.getById(item.id)
+        item.copy(
+            isRead = existing?.isRead ?: item.isRead,
+            isBookmarked = existing?.isBookmarked ?: item.isBookmarked,
+        )
+    }
+
+    private fun CustomFeedPreference.toDescriptor(): FeedDescriptor = FeedDescriptor(
+        id = id,
+        title = title,
+        sourceTitle = "Custom RSS",
+        url = url,
+        description = "Пользовательская RSS-лента",
+        kind = FeedKind.Custom,
+    )
+
+    private fun String.normalizedFeedUrl(): String = trim().replace("&amp;", "&")
 
     private fun buildArticleContent(entity: FeedItemEntity): ArticleContent {
         val blocks = entity.descriptionHtml?.let { HtmlArticleParser.parse(it, entity.url) }
@@ -191,6 +251,48 @@ class TechReaderRepository(
             sourceNotice = "Контент из RSS-ленты. Для полной версии откройте оригинал.",
         )
     }
+}
+
+private fun ArticleContent.toExternalEntity(json: Json): FeedItemEntity = FeedItemEntity(
+    id = id,
+    feedId = "external",
+    title = title,
+    summary = blocks.joinToString(" ") { it.toPlainText() }.take(500),
+    descriptionHtml = null,
+    url = url,
+    imageUrl = imageUrl,
+    authorName = author?.displayName,
+    authorProfileUrl = author?.profileUrl,
+    publishedAt = publishedAt,
+    publishedAtEpoch = null,
+    tagsJson = json.encodeToString(tags),
+    hubsJson = json.encodeToString(hubs),
+    rating = null,
+    commentsCount = null,
+    isRead = true,
+    isBookmarked = true,
+    cachedArticleJson = json.encodeToString(this),
+    fetchedAt = System.currentTimeMillis(),
+)
+
+private fun ArticleBlock.toPlainText(): String = when (this) {
+    is ArticleBlock.CodeBlock -> code
+    is ArticleBlock.Heading -> inline.joinToString("") { it.toPlainText() }
+    is ArticleBlock.Image -> alt.orEmpty()
+    is ArticleBlock.ListBlock -> items.flatten().joinToString(" ") { it.toPlainText() }
+    is ArticleBlock.Paragraph -> inline.joinToString("") { it.toPlainText() }
+    is ArticleBlock.Quote -> blocks.joinToString(" ") { it.toPlainText() }
+    is ArticleBlock.Spoiler -> blocks.joinToString(" ") { it.toPlainText() }
+    is ArticleBlock.TableBlock -> rows.flatten().flatten().joinToString(" ") { it.toPlainText() }
+    is ArticleBlock.UnknownHtml -> html
+}
+
+private fun InlineNode.toPlainText(): String = when (this) {
+    is InlineNode.Bold -> children.joinToString("") { it.toPlainText() }
+    is InlineNode.Code -> value
+    is InlineNode.Italic -> children.joinToString("") { it.toPlainText() }
+    is InlineNode.Link -> text
+    is InlineNode.Text -> value
 }
 
 private fun FeedItem.toEntity(

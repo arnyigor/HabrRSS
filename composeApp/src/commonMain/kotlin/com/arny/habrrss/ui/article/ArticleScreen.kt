@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +38,131 @@ import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.ui.components.EmptyState
 
+
+import androidx.compose.ui.tooling.preview.Preview
+import com.arny.habrrss.domain.models.Author
+import com.arny.habrrss.domain.models.Hub
+import com.arny.habrrss.domain.models.InlineNode
+import com.arny.habrrss.domain.models.Tag
+
+// ================= PREVIEW MOCK DATA =================
+
+private fun createMockArticleContent(): ArticleContent = ArticleContent(
+    id = "habr-123456",
+    title = "Архитектура высоконагруженных систем в 2026 году",
+    url = "https://habr.com/ru/articles/123456/",
+    imageUrl = "https://habrastorage.org/cache/example.png",
+    author = Author(
+        id = "user-789",
+        displayName = "SeniorArch",
+        profileUrl = "https://habr.com/users/arch/"
+    ),
+    publishedAt = "Mon, 12 May 2026 10:30:00 GMT",
+    tags = listOf(
+        Tag("sys-arch", "Системная архитектура"),
+        Tag("java", "Java"),
+        Tag("distributed", "Распределённые системы")
+    ),
+    hubs = listOf(Hub("hub-k8s", "Кубернетис и микросервисы")),
+    blocks = listOf(
+        ArticleBlock.Heading(level = 2, inline = listOf(InlineNode.Text("Введение"))),
+        ArticleBlock.Paragraph(inline = listOf(
+            InlineNode.Text("В современных условиях требования к отказоустойчивости растут экспоненциально. "),
+            InlineNode.Bold(children = listOf(InlineNode.Text("Резервирование"))),
+            InlineNode.Text(" становится стандартом.")
+        )),
+        ArticleBlock.Image(url = "https://example.com/diagram.png", alt = "Схема взаимодействия"),
+        ArticleBlock.CodeBlock(language = "kotlin", code = """
+            fun handleRequest(req: Request): Response {
+                return repository.process(req)
+            }
+        """.trimIndent()),
+        ArticleBlock.Paragraph(inline = listOf(InlineNode.Link(text = "Ссылка на документацию", url = "https://docs.example.com"))),
+        ArticleBlock.ListBlock(ordered = false, items = listOf(
+            listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Отказоустойчивость")))),
+            listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Горизонтальное масштабирование")))),
+            listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Observability"))))
+        ))
+    ),
+    sourceNotice = "Опубликовано на Хабре"
+)
+
+private fun createFallbackArticleContent(): ArticleContent = ArticleContent(
+    id = "habr-fallback",
+    title = "Статья с обрезанным контентом",
+    url = "https://habr.com/ru/articles/fallback/",
+    imageUrl = null,
+    author = Author(id = "user-000", displayName = "Author", profileUrl = null),
+    publishedAt = "Tue, 13 May 2026 08:00:00 GMT",
+    tags = emptyList(),
+    hubs = listOf(Hub("hub-tech", "Технологии")),
+    blocks = listOf(ArticleBlock.Paragraph(inline = emptyList())), // Триггерит !hasContent
+    sourceNotice = ""
+)
+
+// ================= PREVIEW COMPOSABLES =================
+
+@Preview(name = "ArticleScreen - Empty State", showBackground = true)
+@Composable
+private fun ArticleScreenEmptyPreview() {
+    ArticleScreen(
+        modifier = Modifier,
+        article = null,
+        showBack = true,
+        settings = FeedSettings.defaults(),
+        favoriteTagIds = emptySet(),
+        favoriteHubIds = emptySet(),
+        onBack = { },
+        onHubSelected = { },
+        onFavoriteHubToggled = { },
+        onTagSelected = { },
+        onFavoriteTagToggled = { },
+        isBookmarked = false,
+        onBookmark = { },
+    )
+}
+
+@Preview(name = "ArticleScreen - Full Content", showBackground = true)
+@Composable
+private fun ArticleScreenFullPreview() {
+    ArticleScreen(
+        modifier = Modifier,
+        article = createMockArticleContent(),
+        showBack = true,
+        settings = FeedSettings.defaults(),
+        favoriteTagIds = setOf("sys-arch"),
+        favoriteHubIds = setOf("hub-k8s"),
+        onBack = { },
+        onHubSelected = { },
+        onFavoriteHubToggled = { },
+        onTagSelected = { },
+        onFavoriteTagToggled = { },
+        isBookmarked = true,
+        onBookmark = { },
+    )
+}
+
+@Preview(name = "ArticleScreen - Fallback View", showBackground = true)
+@Composable
+private fun ArticleScreenFallbackPreview() {
+    ArticleScreen(
+        modifier = Modifier,
+        article = createFallbackArticleContent(),
+        showBack = true,
+        settings = FeedSettings.defaults(),
+        favoriteTagIds = emptySet(),
+        favoriteHubIds = emptySet(),
+        onBack = { },
+        onHubSelected = { },
+        onFavoriteHubToggled = { },
+        onTagSelected = { },
+        onFavoriteTagToggled = { },
+        isBookmarked = false,
+        onBookmark = { },
+    )
+}
+
+
 @Composable
 internal fun ArticleScreen(
     modifier: Modifier,
@@ -49,6 +176,8 @@ internal fun ArticleScreen(
     onFavoriteHubToggled: (String) -> Unit,
     onTagSelected: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
+    isBookmarked: Boolean,
+    onBookmark: () -> Unit,
 ) {
     if (article == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -80,6 +209,8 @@ internal fun ArticleScreen(
             article = article,
             showBack = showBack,
             onBack = onBack,
+            isBookmarked = isBookmarked,
+            onBookmark = onBookmark,
             modifier = modifier,
         )
         return
@@ -112,7 +243,11 @@ internal fun ArticleScreen(
                 )
             }
             item {
-                ArticleToolbar(article)
+                ArticleToolbar(
+                    article = article,
+                    isBookmarked = isBookmarked,
+                    onBookmark = onBookmark,
+                )
             }
             item {
                 ArticleSourceNotice(article.sourceNotice)
@@ -143,6 +278,8 @@ private fun ArticleFallbackView(
     article: ArticleContent,
     showBack: Boolean,
     onBack: () -> Unit,
+    isBookmarked: Boolean,
+    onBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val actions = rememberArticleActions()
@@ -201,6 +338,17 @@ private fun ArticleFallbackView(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                OutlinedButton(
+                    onClick = onBookmark,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (isBookmarked) "Сохранено" else "Сохранить")
+                }
                 OutlinedButton(
                     onClick = { actions.openUrl(validUrl) },
                     modifier = Modifier.weight(1f),

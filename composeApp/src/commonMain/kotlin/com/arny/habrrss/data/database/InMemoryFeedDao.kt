@@ -20,6 +20,9 @@ class InMemoryFeedDao : FeedDao {
     
     override suspend fun getById(id: String): FeedItemEntity? = 
         items.find { it.id == id }
+
+    override suspend fun getByUrl(url: String): FeedItemEntity? =
+        items.find { it.url == url || it.url.trimEnd('/') == url.trimEnd('/') }
     
     override fun getBookmarks(): Flow<List<FeedItemEntity>> = 
         flowOf(items.filter { it.isBookmarked }.sortedByDescending { it.publishedAt })
@@ -28,7 +31,12 @@ class InMemoryFeedDao : FeedDao {
         items.filter { it.isBookmarked }.sortedByDescending { it.publishedAt }
     
     override suspend fun search(query: String): List<FeedItemEntity> = items.filter {
-        it.title.contains(query, ignoreCase = true) || it.summary.contains(query, ignoreCase = true)
+        it.title.contains(query, ignoreCase = true) ||
+            it.summary.contains(query, ignoreCase = true) ||
+            it.descriptionHtml?.contains(query, ignoreCase = true) == true ||
+            it.tagsJson.contains(query, ignoreCase = true) ||
+            it.hubsJson.contains(query, ignoreCase = true) ||
+            it.authorName?.contains(query, ignoreCase = true) == true
     }
 
     // Fixed: O(n) instead of O(n²) - use HashSet for lookup

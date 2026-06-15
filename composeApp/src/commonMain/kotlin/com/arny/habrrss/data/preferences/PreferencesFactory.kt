@@ -16,8 +16,17 @@ expect fun createUserPreferencesRepository(): UserPreferencesRepository
  */
 class DefaultPreferencesRepository : UserPreferencesRepository {
     private val _preferences = MutableStateFlow(FeedSettings.defaults())
+    private val _favoriteHubIds = MutableStateFlow(emptySet<String>())
+    private val _favoriteTagIds = MutableStateFlow(emptySet<String>())
+    private val _customFeeds = MutableStateFlow(emptyList<CustomFeedPreference>())
 
     override fun preferences(): Flow<FeedSettings> = _preferences
+
+    override fun favoriteHubIds(): Flow<Set<String>> = _favoriteHubIds
+
+    override fun favoriteTagIds(): Flow<Set<String>> = _favoriteTagIds
+
+    override fun customFeeds(): Flow<List<CustomFeedPreference>> = _customFeeds
 
     override suspend fun setFontScale(scale: Float) {
         _preferences.value = _preferences.value.copy(fontScale = scale)
@@ -40,14 +49,25 @@ class DefaultPreferencesRepository : UserPreferencesRepository {
     }
 
     override suspend fun setFavoriteHubIds(ids: Set<String>) {
-        // Not implemented in default
+        _favoriteHubIds.value = ids
     }
 
     override suspend fun setFavoriteTagIds(ids: Set<String>) {
-        // Not implemented in default
+        _favoriteTagIds.value = ids
+    }
+
+    override suspend fun upsertCustomFeed(feed: CustomFeedPreference) {
+        _customFeeds.value = _customFeeds.value.filterNot { it.id == feed.id } + feed
+    }
+
+    override suspend fun removeCustomFeed(id: String) {
+        _customFeeds.value = _customFeeds.value.filterNot { it.id == id }
     }
 
     override suspend fun clear() {
         _preferences.value = FeedSettings.defaults()
+        _favoriteHubIds.value = emptySet()
+        _favoriteTagIds.value = emptySet()
+        _customFeeds.value = emptyList()
     }
 }

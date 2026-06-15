@@ -146,6 +146,8 @@ private fun ReaderWideLayout(
                     navController.navigateToFeed()
                 },
                 onFavoriteTagToggled = viewModel::toggleFavoriteTag,
+                isBookmarked = state.selectedArticleBookmarked,
+                onBookmark = { viewModel.toggleArticleBookmark(article.id) },
             )
         }
     }
@@ -192,7 +194,7 @@ private fun ReaderMobileLayout(
     }
 }
 
-private fun NavBackStackEntry?.toScreen(): Screen? {
+internal fun NavBackStackEntry?.toScreen(): Screen? {
     val route = this?.destination?.route.orEmpty()
     return when {
         route.contains("Feed") -> Screen.Feed
@@ -206,7 +208,7 @@ private fun NavBackStackEntry?.toScreen(): Screen? {
 }
 
 @Composable
-private fun AppNavHost(
+internal  fun AppNavHost(
     navController: NavHostController,
     state: ReaderUiState,
     viewModel: FeedViewModel,
@@ -298,6 +300,7 @@ private fun FeedRoute(
         onSortModeChanged = viewModel::setFeedSortMode,
         isRefreshing = state.isRefreshing,
         onRefresh = viewModel::refresh,
+        onLoadMore = viewModel::loadMoreItems,
     )
 }
 
@@ -326,6 +329,7 @@ private fun BookmarksRoute(
         onSortModeChanged = viewModel::setFeedSortMode,
         isRefreshing = state.isRefreshing,
         onRefresh = viewModel::refresh,
+        onLoadMore = viewModel::loadMoreItems,
     )
 }
 
@@ -358,6 +362,8 @@ private fun SourcesRoute(
             viewModel.selectFeed(feedId)
             navController.navigateToFeed()
         },
+        onCustomFeedSaved = viewModel::saveCustomFeed,
+        onCustomFeedRemoved = viewModel::removeCustomFeed,
     )
 }
 
@@ -410,11 +416,13 @@ private fun ArticleRoute(
                 navController.navigateToFeed()
             },
             onFavoriteTagToggled = viewModel::toggleFavoriteTag,
+            isBookmarked = state.selectedArticleBookmarked,
+            onBookmark = { viewModel.toggleArticleBookmark(article.id) },
         )
     }
 }
 
-private fun NavHostController.navigateToFeed() {
+internal fun NavHostController.navigateToFeed() {
     navigate(Screen.Feed) {
         popUpTo(graph.findStartDestination().id) {
             inclusive = false

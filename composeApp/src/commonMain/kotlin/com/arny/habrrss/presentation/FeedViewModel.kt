@@ -8,95 +8,119 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 
 class FeedViewModel(
-    private val presenter: ReaderPresenter,
+    private val interactor: ReaderInteractor,
 ) : ViewModel() {
-    val state: StateFlow<ReaderUiState> = presenter.state
+    val state: StateFlow<ReaderUiState> = interactor.state
 
     init {
         viewModelScope.launch {
-            presenter.start()
+            interactor.start()
         }
     }
 
     fun refresh() {
         viewModelScope.launch {
-            presenter.refresh()
+            interactor.refresh()
         }
     }
 
     fun selectFeed(feedId: String) {
         viewModelScope.launch {
-            presenter.selectFeed(feedId)
+            interactor.selectFeed(feedId)
         }
     }
 
     fun loadArticleInPane(articleId: String) {
         viewModelScope.launch {
-            presenter.selectArticle(articleId)
+            interactor.selectArticle(articleId)
         }
     }
 
     fun loadMoreItems() {
         viewModelScope.launch {
-            presenter.loadMoreItems()
+            interactor.loadMoreItems()
         }
     }
 
     fun selectDestination(destination: ReaderDestination) {
-        presenter.selectDestination(destination)
+        interactor.selectDestination(destination)
     }
 
     fun closeArticle() {
-        presenter.closeArticle()
+        interactor.closeArticle()
     }
 
     fun selectHub(hubId: String?) {
-        presenter.selectHub(hubId)
+        interactor.selectHub(hubId)
     }
 
     fun selectTag(tagId: String?) {
-        presenter.selectTag(tagId)
+        interactor.selectTag(tagId)
     }
 
     fun toggleFavoriteTag(tagId: String) {
-        presenter.toggleFavoriteTag(tagId)
+        viewModelScope.launch {
+            interactor.toggleFavoriteTag(tagId)
+        }
     }
 
     fun toggleFavoriteHub(hubId: String) {
-        presenter.toggleFavoriteHub(hubId)
+        viewModelScope.launch {
+            interactor.toggleFavoriteHub(hubId)
+        }
     }
 
     fun selectPublicationSection(section: HabrPublicationSection) {
-        presenter.selectPublicationSection(section)
+        interactor.selectPublicationSection(section)
     }
 
     fun updateSearchQuery(query: String) {
-        presenter.updateSearchQuery(query)
+        interactor.updateSearchQuery(query)
     }
 
     fun clearFilters() {
-        presenter.clearFilters()
+        interactor.clearFilters()
     }
 
     fun setShowUnreadOnly(showUnreadOnly: Boolean) {
-        presenter.setShowUnreadOnly(showUnreadOnly)
+        interactor.setShowUnreadOnly(showUnreadOnly)
     }
 
     fun setFeedCardMode(mode: FeedCardMode) {
-        presenter.setFeedCardMode(mode)
+        interactor.setFeedCardMode(mode)
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
-        presenter.setFeedSortMode(mode)
+        interactor.setFeedSortMode(mode)
     }
 
     fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
-        presenter.updateSettings(transform)
+        viewModelScope.launch {
+            interactor.updateSettings(transform)
+        }
+    }
+
+    fun openArticleUrl(url: String) {
+        viewModelScope.launch {
+            interactor.openArticleUrl(url)
+        }
+    }
+
+    fun saveCustomFeed(id: String?, title: String, url: String) {
+        viewModelScope.launch {
+            interactor.saveCustomFeed(id, title, url)
+        }
+    }
+
+    fun removeCustomFeed(id: String) {
+        viewModelScope.launch {
+            interactor.removeCustomFeed(id)
+        }
     }
 
     fun toggleArticleBookmark(articleId: String) {
         viewModelScope.launch {
-            presenter.toggleArticleBookmark(articleId)
+            interactor.toggleArticleBookmark(articleId)
         }
     }
 }

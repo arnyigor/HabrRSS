@@ -4,6 +4,7 @@ import com.arny.habrrss.core.network.createHttpClient
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.article.HabrArticleContentSource
 import com.arny.habrrss.data.database.createPlatformFeedDao
+import com.arny.habrrss.data.preferences.createUserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.data.rss.HabrRssSource
@@ -15,7 +16,7 @@ import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
 import com.arny.habrrss.presentation.FeedViewModel
-import com.arny.habrrss.presentation.ReaderPresenter
+import com.arny.habrrss.presentation.ReaderInteractor
 import io.ktor.client.HttpClient
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
@@ -25,16 +26,19 @@ import org.koin.dsl.module
 val appModule = module {
     single<HttpClient> { createHttpClient(enableLogging = false) }
     single { createPlatformFeedDao() }
+    single { createUserPreferencesRepository() }
     single { HabrArticleContentSource(get()) }
+    single { GenericRssSource(client = get<HttpClient>()) }
     single {
         TechReaderRepository(
             primarySource = HabrRssSource(get()),
             feedDao = get(),
             articleContentSource = get<HabrArticleContentSource>(),
             secondarySources = listOf(
-                GenericRssSource(),
                 HabrApiSource(),
             ),
+            customRssSource = get<GenericRssSource>(),
+            preferencesRepository = get(),
         )
     }
     factory { GetFeedsUseCase(get()) }
@@ -44,8 +48,9 @@ val appModule = module {
     factory { LoadNextPageUseCase(get()) }
     factory { HasMorePagesUseCase(get()) }
     factory {
-        ReaderPresenter(
+        ReaderInteractor(
             repository = get(),
+            preferencesRepository = get(),
             getFeeds = get(),
             refreshFeed = get(),
             openArticle = get(),

@@ -10,7 +10,7 @@ import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
 import com.arny.habrrss.presentation.FeedCardMode
 import com.arny.habrrss.presentation.ReaderDestination
-import com.arny.habrrss.presentation.ReaderPresenter
+import com.arny.habrrss.presentation.ReaderInteractor
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -19,7 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class ReaderPresenterTest {
+class ReaderInteractorTest {
     @Test
     fun startLoadsFeedWithoutOpeningArticleOnMobile() = runTest {
         val presenter = createPresenter()
@@ -182,9 +182,9 @@ class ReaderPresenterTest {
         assertEquals(1.45f, state.settings.lineHeightScale)
     }
 
-    private fun createPresenter(): ReaderPresenter {
+    private fun createPresenter(): ReaderInteractor {
         val repository = TechReaderRepository(FakeFeedSource(), InMemoryFeedDao())
-        return ReaderPresenter(
+        return ReaderInteractor(
             repository = repository,
             getFeeds = GetFeedsUseCase(repository),
             refreshFeed = RefreshFeedUseCase(repository),

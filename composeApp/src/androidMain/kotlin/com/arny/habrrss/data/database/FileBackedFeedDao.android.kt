@@ -22,6 +22,9 @@ class FileBackedFeedDao(
     override suspend fun getById(id: String): FeedItemEntity? =
         items.firstOrNull { it.id == id }
 
+    override suspend fun getByUrl(url: String): FeedItemEntity? =
+        items.firstOrNull { it.url == url || it.url.trimEnd('/') == url.trimEnd('/') }
+
     override fun getBookmarks(): Flow<List<FeedItemEntity>> =
         flowOf(items.bookmarks())
 
@@ -34,6 +37,9 @@ class FileBackedFeedDao(
         return items.filter {
             it.title.contains(plainQuery, ignoreCase = true) ||
                 it.summary.contains(plainQuery, ignoreCase = true) ||
+                it.descriptionHtml?.contains(plainQuery, ignoreCase = true) == true ||
+                it.tagsJson.contains(plainQuery, ignoreCase = true) ||
+                it.hubsJson.contains(plainQuery, ignoreCase = true) ||
                 it.authorName?.contains(plainQuery, ignoreCase = true) == true
         }.sortedByDescending { it.publishedAt }
     }

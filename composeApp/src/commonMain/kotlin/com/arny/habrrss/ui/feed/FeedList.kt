@@ -16,11 +16,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +51,7 @@ internal fun FeedBody(
     onBookmark: (String) -> Unit,
     onClearFilters: () -> Unit,
     onHubSelected: (String?) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     when (state.selectedPublicationSection) {
         HabrPublicationSection.Hubs -> HabrHubCatalog(
@@ -62,6 +71,8 @@ internal fun FeedBody(
             onArticleSelected = onArticleSelected,
             onBookmark = onBookmark,
             onClearFilters = onClearFilters,
+            canLoadMore = state.canLoadMore,
+            onLoadMore = onLoadMore,
         )
     }
 }
@@ -72,14 +83,30 @@ private fun HabrHubCatalog(
     state: ReaderUiState,
     onHubSelected: (String?) -> Unit,
 ) {
-    val hubs = remember(state.items) {
-        state.items.flatMap { it.hubs }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
+    var hubQuery by remember { mutableStateOf("") }
+    val hubs = remember(state.items, hubQuery) {
+        val query = hubQuery.trim()
+        state.items.flatMap { it.hubs }
+            .distinctBy { it.id }
+            .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) }
+            .sortedBy { it.title.lowercase() }
     }
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        item {
+            OutlinedTextField(
+                value = hubQuery,
+                onValueChange = { hubQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                label = { Text("Поиск по хабам") },
+                placeholder = { Text("android, kotlin, backend...") },
+            )
+        }
         if (hubs.isEmpty()) {
             item {
                 EmptyState(
@@ -124,15 +151,19 @@ internal fun FeedList(
 ) {
     val listState = rememberLazyListState()
 
+    LaunchedEffect(items.firstOrNull()?.id) {
+        if (items.isNotEmpty()) listState.scrollToItem(0)
+    }
+
     // Load more when reaching end of list
     LaunchedEffect(listState, canLoadMore) {
         if (!canLoadMore) return@LaunchedEffect
-
-        val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-        val totalItems = listState.layoutInfo.totalItemsCount
-
-        if (lastVisibleItem != null && lastVisibleItem.index >= totalItems - 3) {
-            onLoadMore()
+        snapshotFlow {
+            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            val totalItems = listState.layoutInfo.totalItemsCount
+            lastVisibleItem != null && lastVisibleItem.index >= totalItems - 4
+        }.collect { shouldLoad ->
+            if (shouldLoad) onLoadMore()
         }
     }
 

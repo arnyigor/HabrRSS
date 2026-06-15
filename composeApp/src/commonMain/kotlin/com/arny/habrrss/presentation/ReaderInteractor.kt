@@ -1,9 +1,12 @@
 package com.arny.habrrss.presentation
 
+import com.arny.habrrss.data.preferences.DefaultPreferencesRepository
+import com.arny.habrrss.data.preferences.UserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.FeedItem
+import com.arny.habrrss.domain.models.ThemeMode
 import com.arny.habrrss.domain.usecases.GetFeedsUseCase
 import com.arny.habrrss.domain.usecases.HasMorePagesUseCase
 import com.arny.habrrss.domain.usecases.LoadNextPageUseCase
@@ -14,10 +17,12 @@ import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 
-class ReaderPresenter(
+class ReaderInteractor(
     private val repository: TechReaderRepository,
+    private val preferencesRepository: UserPreferencesRepository = DefaultPreferencesRepository(),
     private val getFeeds: GetFeedsUseCase,
     private val refreshFeed: RefreshFeedUseCase,
     private val openArticle: OpenArticleUseCase,
@@ -30,10 +35,20 @@ class ReaderPresenter(
 
     suspend fun start() {
         if (mutableState.value.items.isNotEmpty()) return
+        val settings = preferencesRepository.preferences().first()
+        val favoriteHubIds = preferencesRepository.favoriteHubIds().first()
+        val favoriteTagIds = preferencesRepository.favoriteTagIds().first()
+        updateState {
+            it.copy(
+                settings = settings,
+                favoriteHubIds = favoriteHubIds,
+                favoriteTagIds = favoriteTagIds,
+            )
+        }
         runLoading {
             val feeds = getFeeds()
             val activeFeedId = feeds.firstOrNull()?.id ?: repository.requireFirstFeedId()
-            
+
             // Try to load from cache first
             val cached = repository.getCachedFeed(activeFeedId)
             if (cached.isNotEmpty()) {
@@ -43,10 +58,11 @@ class ReaderPresenter(
                         activeFeedId = activeFeedId,
                         items = cached,
                         feedLoading = false,
+                        canLoadMore = hasMorePages(activeFeedId),
                     )
                 }
             }
-            
+
             // Then refresh from network
             val page = refreshFeed(activeFeedId)
             updateState {
@@ -55,6 +71,7 @@ class ReaderPresenter(
                     activeFeedId = activeFeedId,
                     items = page.items,
                     selectedArticleId = null,
+                    selectedArticleBookmarked = false,
                     article = null,
                     isArticleOpen = false,
                     selectedHubId = null,
@@ -64,6 +81,7 @@ class ReaderPresenter(
                         ?.toPublicationSection()
                         ?: HabrPublicationSection.Articles,
                     feedLoading = false,
+                    canLoadMore = hasMorePages(activeFeedId),
                     errorMessage = null,
                 )
             }
@@ -73,10 +91,13 @@ class ReaderPresenter(
     suspend fun refresh() {
         val feedId = mutableState.value.activeFeedId ?: return
         runLoading {
+            val feeds = getFeeds()
             val page = refreshFeed(feedId)
             updateState {
                 it.copy(
+                    feeds = feeds,
                     items = mergeSelection(page.items),
+                    canLoadMore = hasMorePages(feedId),
                     errorMessage = null,
                 )
             }
@@ -91,15 +112,18 @@ class ReaderPresenter(
                     activeFeedId = feedId,
                     items = page.items,
                     selectedArticleId = null,
+                    selectedArticleBookmarked = false,
                     article = null,
                     isArticleOpen = false,
                     selectedHubId = null,
                     selectedTagId = null,
+                    searchQuery = "",
                     selectedPublicationSection = it.feeds.firstOrNull { feed -> feed.id == feedId }
                         ?.kind
                         ?.toPublicationSection()
                         ?: HabrPublicationSection.Articles,
                     selectedDestination = ReaderDestination.Feed,
+                    canLoadMore = hasMorePages(feedId),
                     errorMessage = null,
                 )
             }
@@ -119,23 +143,19 @@ class ReaderPresenter(
             val nextPage = loadNextPage(feedId)
             if (nextPage != null) {
                 updateState { state ->
+                    val merged = (state.items + nextPage.items).distinctBy { it.id }
                     state.copy(
-                        items = state.items + nextPage.items,
+                        items = merged,
+                        canLoadMore = hasMorePages(feedId),
                         errorMessage = null,
                     )
                 }
                 loaded = true
+            } else {
+                updateState { it.copy(canLoadMore = false) }
             }
         }
         return loaded
-    }
-
-    /**
-     * Check if more pages are available for current feed
-     */
-    fun canLoadMore(): Boolean {
-        val feedId = mutableState.value.activeFeedId ?: return false
-        return hasMorePages(feedId)
     }
 
     suspend fun selectArticle(articleId: String) {
@@ -147,8 +167,25 @@ class ReaderPresenter(
             updateState {
                 it.copy(
                     selectedArticleId = articleId,
+                    selectedArticleBookmarked = items.firstOrNull { item -> item.id == articleId }?.isBookmarked ?: false,
                     article = article,
                     items = items,
+                    isArticleOpen = true,
+                    selectedDestination = ReaderDestination.Feed,
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
+    suspend fun openArticleUrl(url: String) {
+        runLoading {
+            val article = repository.getArticleByUrl(url)
+            updateState {
+                it.copy(
+                    selectedArticleId = article.id,
+                    selectedArticleBookmarked = false,
+                    article = article,
                     isArticleOpen = true,
                     selectedDestination = ReaderDestination.Feed,
                     errorMessage = null,
@@ -198,26 +235,30 @@ class ReaderPresenter(
         }
     }
 
-    fun toggleFavoriteTag(tagId: String) {
+    suspend fun toggleFavoriteTag(tagId: String) {
+        var nextIds = emptySet<String>()
         updateState { state ->
-            val favoriteTagIds = if (state.favoriteTagIds.contains(tagId)) {
+            nextIds = if (state.favoriteTagIds.contains(tagId)) {
                 state.favoriteTagIds - tagId
             } else {
                 state.favoriteTagIds + tagId
             }
-            state.copy(favoriteTagIds = favoriteTagIds)
+            state.copy(favoriteTagIds = nextIds)
         }
+        preferencesRepository.setFavoriteTagIds(nextIds)
     }
 
-    fun toggleFavoriteHub(hubId: String) {
+    suspend fun toggleFavoriteHub(hubId: String) {
+        var nextIds = emptySet<String>()
         updateState { state ->
-            val favoriteHubIds = if (state.favoriteHubIds.contains(hubId)) {
+            nextIds = if (state.favoriteHubIds.contains(hubId)) {
                 state.favoriteHubIds - hubId
             } else {
                 state.favoriteHubIds + hubId
             }
-            state.copy(favoriteHubIds = favoriteHubIds)
+            state.copy(favoriteHubIds = nextIds)
         }
+        preferencesRepository.setFavoriteHubIds(nextIds)
     }
 
     fun selectPublicationSection(section: HabrPublicationSection) {
@@ -274,8 +315,17 @@ class ReaderPresenter(
         updateState { it.copy(feedSortMode = mode) }
     }
 
-    fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
-        updateState { it.copy(settings = transform(it.settings)) }
+    suspend fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
+        val current = mutableState.value.settings
+        val next = transform(current)
+        updateState { it.copy(settings = next) }
+        if (next.fontScale != current.fontScale) preferencesRepository.setFontScale(next.fontScale)
+        if (next.lineHeightScale != current.lineHeightScale) preferencesRepository.setLineHeightScale(next.lineHeightScale)
+        if (next.themeMode != current.themeMode) preferencesRepository.setThemeMode(next.themeMode)
+        if (next.compactCards != current.compactCards) preferencesRepository.setCompactCards(next.compactCards)
+        if (next.openLinksInsideApp != current.openLinksInsideApp) {
+            preferencesRepository.setOpenLinksInsideApp(next.openLinksInsideApp)
+        }
     }
 
     suspend fun toggleArticleBookmark(articleId: String) {
@@ -284,7 +334,31 @@ class ReaderPresenter(
         val feedId = mutableState.value.activeFeedId ?: return
         val items = repository.getCachedFeed(feedId)
         updateState {
-            it.copy(items = items)
+            val bookmarked = items.firstOrNull { item -> item.id == articleId }?.isBookmarked
+                ?: !it.selectedArticleBookmarked
+            it.copy(
+                items = items,
+                selectedArticleBookmarked = if (it.selectedArticleId == articleId) bookmarked else it.selectedArticleBookmarked,
+            )
+        }
+    }
+
+    suspend fun saveCustomFeed(id: String?, title: String, url: String) {
+        if (url.isBlank()) return
+        repository.upsertCustomFeed(id, title, url)
+        val feeds = getFeeds()
+        updateState { it.copy(feeds = feeds) }
+    }
+
+    suspend fun removeCustomFeed(id: String) {
+        repository.removeCustomFeed(id)
+        val feeds = getFeeds()
+        val activeFeedRemoved = mutableState.value.activeFeedId == id
+        updateState {
+            it.copy(
+                feeds = feeds,
+                activeFeedId = if (activeFeedRemoved) feeds.firstOrNull()?.id else it.activeFeedId,
+            )
         }
     }
 
@@ -318,26 +392,35 @@ class ReaderPresenter(
             ReaderDestination.Sources,
             ReaderDestination.Settings -> state.items
         }
+        val terms = state.searchQuery.split(Regex("\\s+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
         return sectionItems
             .filter { item -> !state.showUnreadOnly || !item.isRead }
             .filter { item -> state.selectedHubId == null || item.hubs.any { it.id == state.selectedHubId } }
             .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
-            .filter { item ->
-                state.searchQuery.isBlank() ||
-                    item.title.contains(state.searchQuery, ignoreCase = true) ||
-                    item.summary.contains(state.searchQuery, ignoreCase = true) ||
-                    item.tags.any { it.title.contains(state.searchQuery, ignoreCase = true) } ||
-                    item.hubs.any { it.title.contains(state.searchQuery, ignoreCase = true) } ||
-                    item.author?.displayName?.contains(state.searchQuery, ignoreCase = true) == true
-            }
+            .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
             .let { filtered ->
                 when (state.feedSortMode) {
                     FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
                     FeedSortMode.Rating -> filtered.sortedByDescending {
-                        it.rating?.filter(Char::isDigit)?.toIntOrNull() ?: 0
+                        it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull() ?: 0
                     }
                 }
             }
+    }
+
+    private fun FeedItem.matchesSearchTerm(rawTerm: String): Boolean {
+        val term = rawTerm.removePrefix("#")
+        val searchableText = listOf(
+            title,
+            summary,
+            descriptionHtml.orEmpty(),
+            author?.displayName.orEmpty(),
+            tags.joinToString(" ") { "${it.title} ${it.id}" },
+            hubs.joinToString(" ") { "${it.title} ${it.id}" },
+        ).joinToString(" ")
+        return searchableText.contains(term, ignoreCase = true)
     }
 
     private fun mergeSelection(items: List<FeedItem>): List<FeedItem> {

@@ -29,6 +29,7 @@ internal fun FeedScreen(
     onSortModeChanged: (FeedSortMode) -> Unit,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     if (!isWide && state.isArticleOpen) {
         ArticleScreen(
@@ -43,6 +44,8 @@ internal fun FeedScreen(
             onFavoriteHubToggled = onFavoriteHubToggled,
             onTagSelected = { onTagSelected(it) },
             onFavoriteTagToggled = onFavoriteTagToggled,
+            isBookmarked = state.selectedArticleBookmarked,
+            onBookmark = { state.selectedArticleId?.let(onBookmark) },
         )
     } else {
         Column(Modifier.fillMaxSize()) {
@@ -68,6 +71,7 @@ internal fun FeedScreen(
                 onBookmark = onBookmark,
                 onClearFilters = onClearFilters,
                 onHubSelected = onHubSelected,
+                onLoadMore = onLoadMore,
             )
         }
     }

@@ -5,6 +5,7 @@ import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.article.HabrArticleContentSource
 import com.arny.habrrss.data.database.FeedDao
 import com.arny.habrrss.data.database.createPlatformFeedDao
+import com.arny.habrrss.data.preferences.createUserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.data.rss.HabrRssSource
@@ -14,7 +15,7 @@ import com.arny.habrrss.domain.usecases.LoadNextPageUseCase
 import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
-import com.arny.habrrss.presentation.ReaderPresenter
+import com.arny.habrrss.presentation.ReaderInteractor
 import io.ktor.client.HttpClient
 
 /**
@@ -47,6 +48,14 @@ open class AppContainer(
         HabrArticleContentSource(httpClient)
     }
 
+    private val preferencesRepository by lazy {
+        createUserPreferencesRepository()
+    }
+
+    private val customRssSource by lazy {
+        GenericRssSource(httpClient)
+    }
+
     // Repository instance
     val repository: TechReaderRepository by lazy {
         TechReaderRepository(
@@ -54,16 +63,18 @@ open class AppContainer(
             feedDao = feedDao,
             articleContentSource = articleContentSource,
             secondarySources = listOf(
-                GenericRssSource(),
                 HabrApiSource(),
             ),
+            customRssSource = customRssSource,
+            preferencesRepository = preferencesRepository,
         )
     }
 
     // Presenter factory
-    fun createReaderPresenter(): ReaderPresenter {
-        return ReaderPresenter(
+    fun createReaderPresenter(): ReaderInteractor {
+        return ReaderInteractor(
             repository = repository,
+            preferencesRepository = preferencesRepository,
             getFeeds = GetFeedsUseCase(repository),
             refreshFeed = RefreshFeedUseCase(repository),
             openArticle = OpenArticleUseCase(repository),

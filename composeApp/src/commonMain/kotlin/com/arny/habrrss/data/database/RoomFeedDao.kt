@@ -18,6 +18,9 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun getById(id: String): FeedItemEntity? =
         feedDao.getById(id)
 
+    override suspend fun getByUrl(url: String): FeedItemEntity? =
+        feedDao.getByUrl(url)
+
     override fun getBookmarks(): Flow<List<FeedItemEntity>> =
         feedDao.getBookmarks()
 

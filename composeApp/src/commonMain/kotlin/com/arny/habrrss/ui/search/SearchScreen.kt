@@ -34,7 +34,7 @@ internal fun SearchScreen(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            placeholder = { Text("Заголовок, тег, автор") },
+            placeholder = { Text("Название, текст, #тег, хаб или автор") },
         )
         val computedVisibleItems = remember(
             state.items,

@@ -3,6 +3,7 @@ package com.arny.habrrss.data.preferences
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.ThemeMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 
 /**
  * Repository for persisting user preferences across app restarts.
@@ -13,6 +14,12 @@ interface UserPreferencesRepository {
      * Observe current preferences as a Flow
      */
     fun preferences(): Flow<FeedSettings>
+
+    fun favoriteHubIds(): Flow<Set<String>>
+
+    fun favoriteTagIds(): Flow<Set<String>>
+
+    fun customFeeds(): Flow<List<CustomFeedPreference>>
 
     /**
      * Update font scale
@@ -49,8 +56,19 @@ interface UserPreferencesRepository {
      */
     suspend fun setFavoriteTagIds(ids: Set<String>)
 
+    suspend fun upsertCustomFeed(feed: CustomFeedPreference)
+
+    suspend fun removeCustomFeed(id: String)
+
     /**
      * Clear all preferences
      */
     suspend fun clear()
 }
+
+@Serializable
+data class CustomFeedPreference(
+    val id: String,
+    val title: String,
+    val url: String,
+)
