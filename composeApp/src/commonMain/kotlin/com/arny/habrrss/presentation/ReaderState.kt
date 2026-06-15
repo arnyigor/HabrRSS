@@ -44,16 +44,24 @@ data class ReaderUiState(
         ).count { it }
 
     val favoriteTags: List<Pair<String, String>>
-        get() = items.flatMap { item -> item.tags.map { it.id to it.title } }
-            .distinctBy { it.first }
-            .filter { favoriteTagIds.contains(it.first) }
-            .sortedBy { it.second.lowercase() }
+        get() {
+            val knownTags = (items.flatMap { item -> item.tags } + article?.tags.orEmpty())
+                .distinctBy { it.id }
+                .associate { it.id to it.title }
+            return favoriteTagIds
+                .map { id -> id to (knownTags[id] ?: id.removePrefix("tag-")) }
+                .sortedBy { it.second.lowercase() }
+        }
 
     val favoriteHubs: List<Pair<String, String>>
-        get() = items.flatMap { item -> item.hubs.map { it.id to it.title } }
-            .distinctBy { it.first }
-            .filter { favoriteHubIds.contains(it.first) }
-            .sortedBy { it.second.lowercase() }
+        get() {
+            val knownHubs = (items.flatMap { item -> item.hubs } + article?.hubs.orEmpty())
+                .distinctBy { it.id }
+                .associate { it.id to it.title }
+            return favoriteHubIds
+                .map { id -> id to (knownHubs[id] ?: id.removePrefix("hub-")) }
+                .sortedBy { it.second.lowercase() }
+        }
 
     val availableHubs: List<String>
         get() = items.flatMap { item -> item.hubs.map { it.id to it.title } }

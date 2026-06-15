@@ -73,7 +73,7 @@ internal fun SettingsScreen(
         }
         SettingsSectionTitle("Избранные хабы и теги")
         Text(
-            "Избранное видно здесь и в верхней панели ленты: хабы и теги со звёздочкой поднимаются первыми.",
+            "Избранное видно здесь и в верхней панели ленты отдельными чипами ★. Нажмите на чип, чтобы отфильтровать ленту по тегу или хабу.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

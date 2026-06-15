@@ -67,12 +67,16 @@ internal fun FeedFilterBar(
     onCardModeChanged: (FeedCardMode) -> Unit,
     onSortModeChanged: (FeedSortMode) -> Unit,
 ) {
-    val hubs = remember(state.items, state.favoriteHubIds) {
-        val all = state.items.flatMap { it.hubs }.distinctBy { it.id }
+    val hubs = remember(state.items, state.favoriteHubIds, state.favoriteHubs) {
+        val all = (state.favoriteHubs.map { (id, title) -> Hub(id, title) } + state.items.flatMap { it.hubs })
+            .distinctBy { it.id }
         val favorite = all.filter { state.favoriteHubIds.contains(it.id) }
         (favorite + all.filterNot { state.favoriteHubIds.contains(it.id) }).take(8)
     }
-    val allTags = remember(state.items) { state.items.flatMap { it.tags }.distinctBy { it.id } }
+    val allTags = remember(state.items, state.favoriteTagIds, state.favoriteTags) {
+        (state.favoriteTags.map { (id, title) -> Tag(id, title) } + state.items.flatMap { it.tags })
+            .distinctBy { it.id }
+    }
     val favoriteTags = remember(allTags, state.favoriteTagIds) {
         allTags.filter { state.favoriteTagIds.contains(it.id) }
     }
@@ -102,6 +106,8 @@ internal fun FeedFilterBar(
                 (favoriteTags + regularTags).firstOrNull { it.id == state.selectedTagId }?.title?.let { "Тег: #$it" }
                     ?: "Тег выбран"
             }
+            state.favoriteTagIds.isNotEmpty() -> "★ Избранные теги"
+            state.favoriteHubIds.isNotEmpty() -> "★ Избранные хабы"
             else -> "Метки"
         }
     }
@@ -219,6 +225,13 @@ internal fun FeedFilterBar(
                                     metadataFiltersExpanded = false
                                 },
                             )
+                        }
+                    }
+                }
+                if (state.favoriteTags.isNotEmpty()) {
+                    FilterChipRow {
+                        state.favoriteTags.forEach { (tagId, title) ->
+                            FeedFilterChip("★ #$title", state.selectedTagId == tagId) { onTagSelected(tagId) }
                         }
                     }
                 }
