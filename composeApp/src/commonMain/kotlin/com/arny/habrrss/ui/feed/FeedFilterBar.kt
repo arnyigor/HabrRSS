@@ -14,10 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,10 +26,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.presentation.ReaderUiState
@@ -42,26 +39,23 @@ internal fun FeedFilterBar(
     state: ReaderUiState,
     onFeedSelected: (String) -> Unit,
     onHubSelected: (String?) -> Unit,
-    onFavoriteHubToggled: (String) -> Unit,
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
 ) {
-    val hubs = remember(state.items) {
-        state.items.flatMap { it.hubs }
-            .distinctBy { it.id }
-            .sortedBy { it.title.lowercase() }
+    val baseFeeds = remember(state.feeds) { state.feeds.filterNot { it.kind == FeedKind.Custom } }
+    val favoriteHubs = remember(state.favoriteHubs, state.items) {
+        state.favoriteHubs.map { (id, title) -> Hub(id, title) }
     }
     val tags = remember(state.items, state.favoriteTagIds, state.favoriteTags) {
         val all = (state.favoriteTags.map { (id, title) -> Tag(id, title) } + state.items.flatMap { it.tags })
             .distinctBy { it.id }
+            .filterNot { it.title.trim().matches(Regex("-?\\d+")) }
         val favorite = all.filter { it.id in state.favoriteTagIds }
         (favorite + all.filterNot { it.id in state.favoriteTagIds })
             .distinctBy { it.id }
             .take(32)
     }
-    var streamsExpanded by rememberSaveable { mutableStateOf(false) }
-    var hubsExpanded by rememberSaveable { mutableStateOf(false) }
-    var tagsExpanded by rememberSaveable { mutableStateOf(false) }
+    var filtersExpanded by rememberSaveable { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -73,67 +67,47 @@ internal fun FeedFilterBar(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             CollapsibleSectionHeader(
-                title = "Потоки",
-                summary = "${state.selectedFeedTitle}, ${state.visibleItems.size} статей",
-                expanded = streamsExpanded,
-                onClick = { streamsExpanded = !streamsExpanded },
+                title = "Фильтры",
+                summary = buildFilterSummary(state, favoriteHubs.size, tags.size),
+                expanded = filtersExpanded,
+                onClick = { filtersExpanded = !filtersExpanded },
             )
-            if (streamsExpanded) {
-                ChipRow {
-                    state.feeds.forEach { feed ->
-                        val isActive = feed.id == state.activeFeedId
-                        FeedFilterChip(
-                            title = if (isActive) "${feed.title} (${state.items.size})" else feed.title,
-                            selected = isActive,
-                            onClick = { if (feed.id != state.activeFeedId) onFeedSelected(feed.id) },
-                        )
-                    }
-                }
-            }
-
-            if (hubs.isNotEmpty()) {
-                CollapsibleSectionHeader(
-                    title = "Хабы",
-                    summary = state.selectedHubId?.let { selected ->
-                        hubs.firstOrNull { it.id == selected }?.title ?: "выбран хаб"
-                    } ?: "${hubs.size} хабов",
-                    expanded = hubsExpanded,
-                    onClick = { hubsExpanded = !hubsExpanded },
-                )
-                if (hubsExpanded) {
+            if (filtersExpanded) {
+                if (baseFeeds.isNotEmpty()) {
+                    SectionLabel("Потоки")
                     ChipRow {
-                        FeedFilterChip(
-                            title = "Все хабы (${state.items.size})",
-                            selected = state.selectedHubId == null,
-                            onClick = { onHubSelected(null) },
-                        )
-                        hubs.forEach { hub ->
-                            HubChip(
-                                hub = hub,
-                                count = state.items.count { item -> item.hubs.any { it.id == hub.id } },
-                                selected = state.selectedHubId == hub.id,
-                                favorite = hub.id in state.favoriteHubIds,
-                                onClick = { onHubSelected(hub.id) },
-                                onFavoriteClick = { onFavoriteHubToggled(hub.id) },
+                        baseFeeds.forEach { feed ->
+                            val isActive = feed.id == state.activeFeedId
+                            FeedFilterChip(
+                                title = if (isActive) "${feed.title} (${state.items.size})" else feed.title,
+                                selected = isActive,
+                                onClick = { if (!isActive) onFeedSelected(feed.id) },
                             )
                         }
                     }
                 }
-            }
-
-            if (tags.isNotEmpty()) {
-                CollapsibleSectionHeader(
-                    title = "Теги",
-                    summary = state.selectedTagId?.let { selected ->
-                        tags.firstOrNull { it.id == selected }?.title?.let { "#$it" } ?: "выбран тег"
-                    } ?: "${tags.size} тегов",
-                    expanded = tagsExpanded,
-                    onClick = { tagsExpanded = !tagsExpanded },
-                )
-                if (tagsExpanded) {
+                if (favoriteHubs.isNotEmpty()) {
+                    SectionLabel("Избранные хабы")
                     ChipRow {
                         FeedFilterChip(
-                            title = "Все теги (${state.items.size})",
+                            title = "Все хабы",
+                            selected = state.selectedHubId == null,
+                            onClick = { onHubSelected(null) },
+                        )
+                        favoriteHubs.forEach { hub ->
+                            FeedFilterChip(
+                                title = "${hub.title} (${state.items.count { item -> item.hubs.any { it.id == hub.id } }})",
+                                selected = state.selectedHubId == hub.id,
+                                onClick = { onHubSelected(hub.id) },
+                            )
+                        }
+                    }
+                }
+                if (tags.isNotEmpty()) {
+                    SectionLabel("Теги")
+                    ChipRow {
+                        FeedFilterChip(
+                            title = "Все теги",
                             selected = state.selectedTagId == null,
                             onClick = { onTagSelected(null) },
                         )
@@ -151,7 +125,6 @@ internal fun FeedFilterBar(
                     }
                 }
             }
-
             if (state.activeFilterCount > 0) {
                 ChipRow {
                     FeedFilterChip(
@@ -163,6 +136,17 @@ internal fun FeedFilterBar(
             }
         }
     }
+}
+
+private fun buildFilterSummary(
+    state: ReaderUiState,
+    favoriteHubCount: Int,
+    tagCount: Int,
+): String = buildString {
+    append("${state.visibleItems.size} статей")
+    if (favoriteHubCount > 0) append(" · $favoriteHubCount избранных хабов")
+    if (tagCount > 0) append(" · $tagCount тегов")
+    if (state.activeFilterCount > 0) append(" · фильтров: ${state.activeFilterCount}")
 }
 
 @Composable
@@ -198,6 +182,16 @@ private fun CollapsibleSectionHeader(
 }
 
 @Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        modifier = Modifier.padding(horizontal = 20.dp),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
 private fun ChipRow(
     content: @Composable () -> Unit,
 ) {
@@ -210,50 +204,6 @@ private fun ChipRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         content()
-    }
-}
-
-@Composable
-private fun HubChip(
-    hub: Hub,
-    count: Int,
-    selected: Boolean,
-    favorite: Boolean,
-    onClick: () -> Unit,
-    onFavoriteClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.widthIn(min = 96.dp, max = 240.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-        ),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "${hub.title} ($count)",
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onClick)
-                    .padding(start = 12.dp, top = 9.dp, bottom = 9.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            IconButton(onClick = onFavoriteClick) {
-                Icon(
-                    imageVector = if (favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                    contentDescription = if (favorite) "Убрать хаб из избранного" else "Добавить хаб в избранное",
-                    tint = if (favorite) Color(0xFFFFA000) else MaterialTheme.colorScheme.outline,
-                )
-            }
-        }
     }
 }
 

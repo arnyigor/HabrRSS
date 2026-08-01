@@ -1,5 +1,8 @@
 package com.arny.habrrss.ui.article
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +54,7 @@ import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
+import kotlinx.coroutines.launch
 
 // ================= PREVIEW MOCK DATA =================
 
@@ -235,6 +242,9 @@ internal fun ArticleScreen(
 
     val actions = rememberArticleActions()
     val articleListState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val showScrollToTop = (articleListState.firstVisibleItemIndex > 0 || articleListState.firstVisibleItemScrollOffset > 300) &&
+        !articleListState.isScrollInProgress
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -245,6 +255,17 @@ internal fun ArticleScreen(
                 isBookmarked = isBookmarked,
                 onBookmark = onBookmark,
             )
+        },
+        floatingActionButton = {
+            AnimatedVisibility(
+                visible = showScrollToTop,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                FloatingActionButton(onClick = { coroutineScope.launch { articleListState.animateScrollToItem(0) } }) {
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Наверх")
+                }
+            }
         },
     ) { innerPadding ->
         ArticleScrollContainer(
@@ -292,9 +313,6 @@ internal fun ArticleScreen(
             item {
                 ArticleFooterSections(
                     article = article,
-                    favoriteTagIds = favoriteTagIds,
-                    onTagSelected = onTagSelected,
-                    onFavoriteTagToggled = onFavoriteTagToggled,
                     modifier = Modifier.widthIn(max = 860.dp),
                 )
             }

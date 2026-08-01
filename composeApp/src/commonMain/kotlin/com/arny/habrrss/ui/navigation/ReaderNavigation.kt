@@ -1,6 +1,5 @@
 package com.arny.habrrss.ui.navigation
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -114,39 +113,32 @@ internal fun ReaderTopBar(
 ) {
     TopAppBar(
         title = {
-            Column {
+            if (state.selectedDestination == ReaderDestination.Feed || state.selectedDestination == ReaderDestination.Bookmarks) {
+                OutlinedTextField(
+                    value = state.searchQuery,
+                    onValueChange = onSearchChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    placeholder = { Text("Поиск по статьям") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color.White,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
+                        focusedLeadingIconColor = Color.White,
+                        unfocusedLeadingIconColor = Color.White.copy(alpha = 0.75f),
+                        focusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
+                        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
+                    ),
+                )
+            } else {
                 Text(
                     text = "TechReader",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    text = "${state.selectedFeedTitle} - ${state.visibleItems.size} статей",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (state.selectedDestination == ReaderDestination.Feed || state.selectedDestination == ReaderDestination.Bookmarks) {
-                    OutlinedTextField(
-                        value = state.searchQuery,
-                        onValueChange = onSearchChanged,
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                        placeholder = { Text("Поиск") },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
-                            focusedLeadingIconColor = Color.White,
-                            unfocusedLeadingIconColor = Color.White.copy(alpha = 0.75f),
-                            focusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
-                            unfocusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
-                        ),
-                    )
-                }
             }
         },
         actions = {

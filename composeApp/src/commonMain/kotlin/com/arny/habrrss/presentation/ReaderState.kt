@@ -49,7 +49,7 @@ data class ReaderUiState(
                 .distinctBy { it.id }
                 .associate { it.id to it.title }
             return favoriteTagIds
-                .map { id -> id to (knownTags[id] ?: id.removePrefix("tag-")) }
+                .mapNotNull { id -> knownTags[id]?.takeUnless { it.looksLikeGeneratedId() }?.let { id to it } }
                 .sortedBy { it.second.lowercase() }
         }
 
@@ -59,7 +59,7 @@ data class ReaderUiState(
                 .distinctBy { it.id }
                 .associate { it.id to it.title }
             return favoriteHubIds
-                .map { id -> id to (knownHubs[id] ?: id.removePrefix("hub-")) }
+                .mapNotNull { id -> knownHubs[id]?.takeUnless { it.looksLikeGeneratedId() }?.let { id to it } }
                 .sortedBy { it.second.lowercase() }
         }
 
@@ -104,6 +104,8 @@ data class ReaderUiState(
             CachePolicy.RefreshInBackground -> "refresh-in-background"
         }
 }
+
+private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
 
 enum class ReaderDestination(val label: String) {
     Feed("Лента"),

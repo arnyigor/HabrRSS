@@ -270,8 +270,16 @@ class FeedViewModel(
     }
 
     fun selectHub(hubId: String?) {
+        val current = mutableState.value
+        val baseFeedId = current.feeds.firstOrNull { it.kind != FeedKind.Custom }?.id
+        val activeFeed = current.feeds.firstOrNull { it.id == current.activeFeedId }
+        if (activeFeed?.kind == FeedKind.Custom && baseFeedId != null) {
+            observeFeed(baseFeedId)
+            resetPager(baseFeedId)
+        }
         updateState {
             it.copy(
+                activeFeedId = if (activeFeed?.kind == FeedKind.Custom && baseFeedId != null) baseFeedId else it.activeFeedId,
                 selectedHubId = if (it.selectedHubId == hubId) null else hubId,
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,

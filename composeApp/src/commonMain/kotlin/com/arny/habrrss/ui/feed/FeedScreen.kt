@@ -21,7 +21,6 @@ internal fun FeedScreen(
     state: ReaderUiState,
     onFeedSelected: (String) -> Unit,
     onHubSelected: (String?) -> Unit,
-    onFavoriteHubToggled: (String) -> Unit,
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
     onArticleSelected: (String) -> Unit,
@@ -35,7 +34,6 @@ internal fun FeedScreen(
             state = state,
             onFeedSelected = onFeedSelected,
             onHubSelected = onHubSelected,
-            onFavoriteHubToggled = onFavoriteHubToggled,
             onTagSelected = onTagSelected,
             onClearFilters = onClearFilters,
         )
@@ -61,7 +59,6 @@ private fun FeedScreenPreview() {
             state = previewFeedState(),
             onFeedSelected = {},
             onHubSelected = {},
-            onFavoriteHubToggled = {},
             onTagSelected = {},
             onClearFilters = {},
             onArticleSelected = {},

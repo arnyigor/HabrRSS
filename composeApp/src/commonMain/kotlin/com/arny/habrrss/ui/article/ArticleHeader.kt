@@ -110,6 +110,25 @@ internal fun ArticleHeader(
                 )
             }
         }
+        if (article.tags.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                article.tags.forEach { tag ->
+                    TagArticleChip(
+                        tag = tag,
+                        favorite = favoriteTagIds.contains(tag.id),
+                        onClick = { onTagSelected(tag.id) },
+                        onFavoriteClick = { onFavoriteTagToggled(tag.id) },
+                    )
+                }
+            }
+        }
     }
 }
 
