@@ -32,35 +32,11 @@ class HabrRssSource(
     private val feeds = listOf(
         FeedDescriptor(
             id = FeedIds.All,
-            title = "Все публикации",
+            title = "Все статьи",
             sourceTitle = "Habr",
             url = "https://habr.com/ru/rss/articles/?limit=100&with_hubs=true&with_tags=true",
             description = "Все статьи Хабра",
             kind = FeedKind.All
-        ),
-        FeedDescriptor(
-            id = FeedIds.Best,
-            title = "Лучшее за день",
-            sourceTitle = "Habr",
-            url = "https://habr.com/ru/rss/best/daily/?limit=100&with_hubs=true&with_tags=true",
-            description = "Лучшие статьи за сутки",
-            kind = FeedKind.Best
-        ),
-        FeedDescriptor(
-            id = FeedIds.Posts,
-            title = "Посты",
-            sourceTitle = "Habr",
-            url = "https://habr.com/ru/rss/posts/?limit=100&with_hubs=true&with_tags=true",
-            description = "Посты Хабра",
-            kind = FeedKind.Posts
-        ),
-        FeedDescriptor(
-            id = FeedIds.News,
-            title = "Новости",
-            sourceTitle = "Habr",
-            url = "https://habr.com/ru/rss/news/?limit=100&with_hubs=true&with_tags=true",
-            description = "Новости Хабра",
-            kind = FeedKind.News
         ),
         FeedDescriptor(
             id = FeedIds.Kotlin,
@@ -224,9 +200,6 @@ class HabrRssSource(
 
     object FeedIds {
         const val All = "habr-all"
-        const val Best = "habr-best"
-        const val Posts = "habr-posts"
-        const val News = "habr-news"
         const val Kotlin = "habr-kotlin"
     }
 

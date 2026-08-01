@@ -11,19 +11,20 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class HabrRssSourceTest {
     @Test
-    fun exposesHabrPublicationFeeds() = runTest {
+    fun exposesOnlyArticleFeeds() = runTest {
         val source = HabrRssSource(mockClient("<rss><channel/></rss>"))
 
         val feeds = source.getFeeds()
 
         assertTrue(feeds.any { it.kind == FeedKind.All && it.url.contains("/rss/articles/") })
-        assertTrue(feeds.any { it.kind == FeedKind.Posts && it.url.contains("/rss/posts/") })
-        assertTrue(feeds.any { it.kind == FeedKind.News && it.url.contains("/rss/news/") })
+        assertFalse(feeds.any { it.url.contains("/rss/posts/") || it.url.contains("/rss/news/") })
+        assertTrue(feeds.all { it.kind == FeedKind.All || it.kind == FeedKind.Hub })
         assertTrue(feeds.all { it.url.contains("with_hubs=true") && it.url.contains("with_tags=true") })
     }
 

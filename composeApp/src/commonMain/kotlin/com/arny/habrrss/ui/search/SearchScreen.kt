@@ -55,7 +55,6 @@ internal fun SearchScreen(
             onRefresh = onRefresh,
             onArticleSelected = onArticleSelected,
             onBookmark = onBookmark,
-            onClearFilters = { onSearchChanged("") },
         )
     }
 }

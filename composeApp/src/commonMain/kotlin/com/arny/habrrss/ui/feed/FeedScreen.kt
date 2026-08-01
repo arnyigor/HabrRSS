@@ -13,42 +13,23 @@ import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.presentation.FeedCardMode
-import com.arny.habrrss.presentation.FeedSortMode
 import com.arny.habrrss.presentation.ReaderUiState
-import com.arny.habrrss.presentation.feed.HabrPublicationSection
 
 @Composable
 internal fun FeedScreen(
     isWide: Boolean,
     state: ReaderUiState,
     onFeedSelected: (String) -> Unit,
-    onPublicationSectionSelected: (HabrPublicationSection) -> Unit,
     onArticleSelected: (String) -> Unit,
     onBookmark: (String) -> Unit,
-    onHubSelected: (String?) -> Unit,
-    onFavoriteHubToggled: (String) -> Unit,
-    onTagSelected: (String?) -> Unit,
-    onFavoriteTagToggled: (String) -> Unit,
-    onClearFilters: () -> Unit,
-    onUnreadOnlyChanged: (Boolean) -> Unit,
-    onCardModeChanged: (FeedCardMode) -> Unit,
-    onSortModeChanged: (FeedSortMode) -> Unit,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         FeedFilterBar(
-            isWide = isWide,
             state = state,
             onFeedSelected = onFeedSelected,
-            onPublicationSectionSelected = onPublicationSectionSelected,
-            onHubSelected = onHubSelected,
-            onTagSelected = onTagSelected,
-            onClearFilters = onClearFilters,
-            onUnreadOnlyChanged = onUnreadOnlyChanged,
-            onCardModeChanged = onCardModeChanged,
-            onSortModeChanged = onSortModeChanged,
         )
         FeedBody(
             modifier = Modifier.fillMaxSize(),
@@ -58,8 +39,6 @@ internal fun FeedScreen(
             onRefresh = onRefresh,
             onArticleSelected = onArticleSelected,
             onBookmark = onBookmark,
-            onClearFilters = onClearFilters,
-            onHubSelected = onHubSelected,
             onLoadMore = onLoadMore,
         )
     }
@@ -73,17 +52,8 @@ private fun FeedScreenPreview() {
             isWide = false,
             state = previewFeedState(),
             onFeedSelected = {},
-            onPublicationSectionSelected = {},
             onArticleSelected = {},
             onBookmark = {},
-            onHubSelected = {},
-            onFavoriteHubToggled = {},
-            onTagSelected = {},
-            onFavoriteTagToggled = {},
-            onClearFilters = {},
-            onUnreadOnlyChanged = {},
-            onCardModeChanged = {},
-            onSortModeChanged = {},
             isRefreshing = false,
             onRefresh = {},
             onLoadMore = {},
