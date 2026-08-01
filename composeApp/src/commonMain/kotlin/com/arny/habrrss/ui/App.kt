@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import com.arny.habrrss.domain.sync.BackgroundSyncManager
 import com.arny.habrrss.presentation.ArticleIntent
 import com.arny.habrrss.presentation.ArticleViewModel
+import com.arny.habrrss.presentation.FeedIntent
 import com.arny.habrrss.presentation.FeedViewModel
 import com.arny.habrrss.ui.navigation.ReaderApp
 import org.koin.compose.koinInject
@@ -23,7 +24,7 @@ fun App(initialArticleUrl: String? = null) {
 
     LaunchedEffect(initialArticleUrl) {
         if (!initialArticleUrl.isNullOrBlank()) {
-            viewModel.openArticleUrl(initialArticleUrl)
+            viewModel.dispatch(FeedIntent.OpenArticleUrl(initialArticleUrl))
             articleViewModel.dispatch(ArticleIntent.OpenUrl(initialArticleUrl))
         }
     }

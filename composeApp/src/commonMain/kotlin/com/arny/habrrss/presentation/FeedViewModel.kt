@@ -42,6 +42,10 @@ sealed interface FeedIntent {
     data class SetShowUnreadOnly(val showUnreadOnly: Boolean) : FeedIntent
     data class SetFeedCardMode(val mode: FeedCardMode) : FeedIntent
     data class SetFeedSortMode(val mode: FeedSortMode) : FeedIntent
+    data class UpdateSettings(val transform: (FeedSettings) -> FeedSettings) : FeedIntent
+    data class SaveCustomFeed(val id: String?, val title: String, val url: String) : FeedIntent
+    data class RemoveCustomFeed(val id: String) : FeedIntent
+    data class OpenArticleUrl(val url: String) : FeedIntent
     data class ToggleArticleBookmark(val articleId: String) : FeedIntent
 }
 
@@ -87,6 +91,10 @@ class FeedViewModel(
             is FeedIntent.SetShowUnreadOnly -> setShowUnreadOnly(intent.showUnreadOnly)
             is FeedIntent.SetFeedCardMode -> setFeedCardMode(intent.mode)
             is FeedIntent.SetFeedSortMode -> setFeedSortMode(intent.mode)
+            is FeedIntent.UpdateSettings -> updateSettings(intent.transform)
+            is FeedIntent.SaveCustomFeed -> saveCustomFeed(intent.id, intent.title, intent.url)
+            is FeedIntent.RemoveCustomFeed -> removeCustomFeed(intent.id)
+            is FeedIntent.OpenArticleUrl -> openArticleUrl(intent.url)
             is FeedIntent.ToggleArticleBookmark -> toggleArticleBookmark(intent.articleId)
         }
     }

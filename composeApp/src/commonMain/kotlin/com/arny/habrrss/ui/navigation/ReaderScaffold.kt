@@ -34,6 +34,7 @@ import com.arny.habrrss.navigation.Screen
 import com.arny.habrrss.presentation.ArticleIntent
 import com.arny.habrrss.presentation.ArticleUiState
 import com.arny.habrrss.presentation.ArticleViewModel
+import com.arny.habrrss.presentation.FeedIntent
 import com.arny.habrrss.presentation.FeedViewModel
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
@@ -66,12 +67,12 @@ internal fun ReaderApp(
         val displayRoute = if (isWide && currentRoute is Screen.Article) backStackManager.currentTab else currentRoute
         val isArticleRoute = !isWide && currentRoute is Screen.Article
         val closeArticle = {
-            viewModel.closeArticle()
+            viewModel.dispatch(FeedIntent.CloseArticle)
             articleViewModel.close()
         }
         val navigateToTopLevel: (Screen) -> Unit = { screen ->
             backStackManager.selectTopLevel(screen)
-            viewModel.selectDestination(screen.toDestination())
+            viewModel.dispatch(FeedIntent.SelectDestination(screen.toDestination()))
             closeArticle()
         }
         val popBackStack: () -> Unit = {
@@ -81,7 +82,7 @@ internal fun ReaderApp(
             }
         }
         val openArticle: (String) -> Unit = { articleId ->
-            viewModel.loadArticleInPane(articleId)
+            viewModel.dispatch(FeedIntent.SelectArticle(articleId))
             articleViewModel.openArticle(articleId)
             if (!isWide) {
                 backStackManager.navigate(Screen.Article(articleId))
@@ -89,7 +90,7 @@ internal fun ReaderApp(
         }
         val navigateToFeed: () -> Unit = {
             backStackManager.selectTopLevel(Screen.Feed)
-            viewModel.selectDestination(Screen.Feed.toDestination())
+            viewModel.dispatch(FeedIntent.SelectDestination(Screen.Feed.toDestination()))
         }
 
         LaunchedEffect(isWide, state.isArticleOpen, state.selectedArticleId) {
@@ -105,20 +106,20 @@ internal fun ReaderApp(
             currentRoute = displayRoute,
             selectedTopLevel = backStackManager.currentTab,
             isArticleRoute = isArticleRoute,
-            onRefresh = viewModel::refresh,
-            onDestinationSelected = viewModel::selectDestination,
+            onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
+            onDestinationSelected = { viewModel.dispatch(FeedIntent.SelectDestination(it)) },
             onTopLevelSelected = navigateToTopLevel,
             onCloseArticle = closeArticle,
             onHubSelected = { hubId ->
-                viewModel.selectHub(hubId)
+                viewModel.dispatch(FeedIntent.SelectHub(hubId))
                 navigateToFeed()
             },
             onTagSelected = { tagId ->
-                viewModel.selectTag(tagId)
+                viewModel.dispatch(FeedIntent.SelectTag(tagId))
                 navigateToFeed()
             },
-            onFavoriteHubToggled = viewModel::toggleFavoriteHub,
-            onFavoriteTagToggled = viewModel::toggleFavoriteTag,
+            onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
+            onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
             onArticleBookmarkToggled = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
             navHost = { modifier, wide ->
                 AppNavHost(
@@ -365,21 +366,21 @@ private fun FeedRoute(
     FeedScreen(
         isWide = isWide,
         state = state,
-        onFeedSelected = viewModel::selectFeed,
-        onPublicationSectionSelected = viewModel::selectPublicationSection,
+        onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
+        onPublicationSectionSelected = { viewModel.dispatch(FeedIntent.SelectPublicationSection(it)) },
         onArticleSelected = openArticle,
-        onBookmark = viewModel::toggleArticleBookmark,
-        onHubSelected = viewModel::selectHub,
-        onFavoriteHubToggled = viewModel::toggleFavoriteHub,
-        onTagSelected = viewModel::selectTag,
-        onFavoriteTagToggled = viewModel::toggleFavoriteTag,
-        onClearFilters = viewModel::clearFilters,
-        onUnreadOnlyChanged = viewModel::setShowUnreadOnly,
-        onCardModeChanged = viewModel::setFeedCardMode,
-        onSortModeChanged = viewModel::setFeedSortMode,
+        onBookmark = { viewModel.dispatch(FeedIntent.ToggleArticleBookmark(it)) },
+        onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
+        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
+        onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
+        onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
+        onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
+        onUnreadOnlyChanged = { viewModel.dispatch(FeedIntent.SetShowUnreadOnly(it)) },
+        onCardModeChanged = { viewModel.dispatch(FeedIntent.SetFeedCardMode(it)) },
+        onSortModeChanged = { viewModel.dispatch(FeedIntent.SetFeedSortMode(it)) },
         isRefreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh,
-        onLoadMore = viewModel::loadMoreItems,
+        onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
+        onLoadMore = { viewModel.dispatch(FeedIntent.LoadMore) },
     )
 }
 
@@ -393,21 +394,21 @@ private fun BookmarksRoute(
     FeedScreen(
         isWide = isWide,
         state = state,
-        onFeedSelected = viewModel::selectFeed,
-        onPublicationSectionSelected = viewModel::selectPublicationSection,
+        onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
+        onPublicationSectionSelected = { viewModel.dispatch(FeedIntent.SelectPublicationSection(it)) },
         onArticleSelected = openArticle,
-        onBookmark = viewModel::toggleArticleBookmark,
-        onHubSelected = viewModel::selectHub,
-        onFavoriteHubToggled = viewModel::toggleFavoriteHub,
-        onTagSelected = viewModel::selectTag,
-        onFavoriteTagToggled = viewModel::toggleFavoriteTag,
-        onClearFilters = viewModel::clearFilters,
-        onUnreadOnlyChanged = viewModel::setShowUnreadOnly,
-        onCardModeChanged = viewModel::setFeedCardMode,
-        onSortModeChanged = viewModel::setFeedSortMode,
+        onBookmark = { viewModel.dispatch(FeedIntent.ToggleArticleBookmark(it)) },
+        onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
+        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
+        onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
+        onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
+        onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
+        onUnreadOnlyChanged = { viewModel.dispatch(FeedIntent.SetShowUnreadOnly(it)) },
+        onCardModeChanged = { viewModel.dispatch(FeedIntent.SetFeedCardMode(it)) },
+        onSortModeChanged = { viewModel.dispatch(FeedIntent.SetFeedSortMode(it)) },
         isRefreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh,
-        onLoadMore = viewModel::loadMoreItems,
+        onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
+        onLoadMore = { viewModel.dispatch(FeedIntent.LoadMore) },
     )
 }
 
@@ -419,11 +420,11 @@ private fun SearchRoute(
 ) {
     SearchScreen(
         state = state,
-        onSearchChanged = viewModel::updateSearchQuery,
+        onSearchChanged = { viewModel.dispatch(FeedIntent.UpdateSearchQuery(it)) },
         onArticleSelected = openArticle,
-        onBookmark = viewModel::toggleArticleBookmark,
+        onBookmark = { viewModel.dispatch(FeedIntent.ToggleArticleBookmark(it)) },
         isRefreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh,
+        onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
     )
 }
 
@@ -437,11 +438,11 @@ private fun SourcesRoute(
         feeds = state.feeds,
         activeFeedId = state.activeFeedId,
         onFeedSelected = { feedId ->
-            viewModel.selectFeed(feedId)
+            viewModel.dispatch(FeedIntent.SelectFeed(feedId))
             navigateToFeed()
         },
-        onCustomFeedSaved = viewModel::saveCustomFeed,
-        onCustomFeedRemoved = viewModel::removeCustomFeed,
+        onCustomFeedSaved = { id, title, url -> viewModel.dispatch(FeedIntent.SaveCustomFeed(id, title, url)) },
+        onCustomFeedRemoved = { viewModel.dispatch(FeedIntent.RemoveCustomFeed(it)) },
     )
 }
 
@@ -452,12 +453,12 @@ private fun SettingsRoute(
 ) {
     SettingsScreen(
         state = state,
-        onCardModeChanged = viewModel::setFeedCardMode,
-        onFontScaleChanged = { value -> viewModel.updateSettings { it.copy(fontScale = value) } },
-        onLineHeightChanged = { value -> viewModel.updateSettings { it.copy(lineHeightScale = value) } },
-        onOpenLinksInsideChanged = { value -> viewModel.updateSettings { it.copy(openLinksInsideApp = value) } },
-        onFavoriteHubToggled = viewModel::toggleFavoriteHub,
-        onFavoriteTagToggled = viewModel::toggleFavoriteTag,
+        onCardModeChanged = { viewModel.dispatch(FeedIntent.SetFeedCardMode(it)) },
+        onFontScaleChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(fontScale = value) }) },
+        onLineHeightChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(lineHeightScale = value) }) },
+        onOpenLinksInsideChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(openLinksInsideApp = value) }) },
+        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
+        onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
     )
 }
 
@@ -491,15 +492,15 @@ private fun ArticleRoute(
             favoriteHubIds = state.favoriteHubIds,
             onBack = onBack,
             onHubSelected = { hubId ->
-                viewModel.selectHub(hubId)
+                viewModel.dispatch(FeedIntent.SelectHub(hubId))
                 navigateToFeed()
             },
-            onFavoriteHubToggled = viewModel::toggleFavoriteHub,
+            onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
             onTagSelected = { tagId ->
-                viewModel.selectTag(tagId)
+                viewModel.dispatch(FeedIntent.SelectTag(tagId))
                 navigateToFeed()
             },
-            onFavoriteTagToggled = viewModel::toggleFavoriteTag,
+            onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
             isBookmarked = articleState.isBookmarked,
             onBookmark = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
         )
