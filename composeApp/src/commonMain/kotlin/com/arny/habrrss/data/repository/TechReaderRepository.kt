@@ -159,35 +159,26 @@ class TechReaderRepository(
         val entity = feedDao.getById(articleId)
             ?: throw SourceUnavailableException("Article not found: $articleId")
 
-        val cachedArticle = entity.cachedArticleJson?.let { cached ->
-            runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
-        }
-        val fallback = cachedArticle ?: buildArticleContent(entity)
+        return loadAndCacheArticle(entity)
+    }
 
-        // Try to fetch full article using dedicated content source
-        val fullArticle = articleContentSource?.let { source ->
+    /**
+     * Warms up full article bodies for the first visible items without changing local read state.
+     */
+    suspend fun preloadArticles(articleIds: List<String>, limit: Int = DEFAULT_PRELOAD_ARTICLES_LIMIT) {
+        articleIds.distinct().take(limit).forEach { articleId ->
+            val entity = feedDao.getById(articleId) ?: return@forEach
+            val cachedArticle = entity.cachedArticleJson?.let { cached ->
+                runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
+            }
+            if (cachedArticle?.blocks?.isNotEmpty() == true) return@forEach
             try {
-                source.getArticleByUrl(entity.url)
+                loadAndCacheArticle(entity)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                null
+                // Preloading is best effort. Explicit article opening will show an error if needed.
             }
-        }
-
-        return when {
-            fullArticle != null && fullArticle.blocks.isNotEmpty() -> {
-                // Merge: preserve author from RSS fallback if full article doesn't have it
-                val merged = fallback.copy(
-                    imageUrl = fallback.imageUrl ?: fullArticle.imageUrl,
-                    blocks = fullArticle.blocks,
-                    sourceNotice = fullArticle.sourceNotice,
-                    author = fallback.author ?: fullArticle.author,
-                )
-                feedDao.update(entity.copy(cachedArticleJson = json.encodeToString(merged)))
-                merged
-            }
-            else -> fallback
         }
     }
 
@@ -282,6 +273,37 @@ class TechReaderRepository(
     fun requireFirstFeedId(): String {
         return cachedFeeds.firstOrNull()?.id
             ?: throw SourceUnavailableException("No feed descriptors are available.")
+    }
+
+    private suspend fun loadAndCacheArticle(entity: FeedItemEntity): ArticleContent {
+        val cachedArticle = entity.cachedArticleJson?.let { cached ->
+            runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
+        }
+        val fallback = cachedArticle ?: buildArticleContent(entity)
+
+        val fullArticle = articleContentSource?.let { source ->
+            try {
+                source.getArticleByUrl(entity.url)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        return when {
+            fullArticle != null && fullArticle.blocks.isNotEmpty() -> {
+                val merged = fallback.copy(
+                    imageUrl = fallback.imageUrl ?: fullArticle.imageUrl,
+                    blocks = fullArticle.blocks,
+                    sourceNotice = fullArticle.sourceNotice,
+                    author = fallback.author ?: fullArticle.author,
+                )
+                feedDao.update(entity.copy(cachedArticleJson = json.encodeToString(merged)))
+                merged
+            }
+            else -> fallback
+        }
     }
 
     private suspend fun markRead(articleId: String) {
@@ -455,3 +477,5 @@ private fun List<ArticleLocalStateEntity>.byArticleId(): Map<String, ArticleLoca
 
 private fun List<FavoriteArticleEntity>.articleIds(): Set<String> =
     mapTo(mutableSetOf()) { it.articleId }
+
+private const val DEFAULT_PRELOAD_ARTICLES_LIMIT = 10

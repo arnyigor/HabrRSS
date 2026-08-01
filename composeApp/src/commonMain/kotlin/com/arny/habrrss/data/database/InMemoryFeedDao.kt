@@ -139,8 +139,8 @@ class InMemoryFeedDao : FeedDao {
     }
 
     private fun List<FeedItemEntity>.byFeed(feedId: String): List<FeedItemEntity> =
-        filter { it.feedId == feedId }.sortedByDescending { it.publishedAtEpoch ?: 0L }
+        filter { it.feedId == feedId }.sortedByDescending { it.publishedAtEpoch ?: it.fetchedAt }
 
     private fun List<FeedItemEntity>.bookmarks(): List<FeedItemEntity> =
-        filter { it.id in favoriteArticles }.sortedByDescending { it.publishedAtEpoch ?: 0L }
+        filter { it.id in favoriteArticles }.sortedByDescending { favoriteArticles[it.id]?.createdAt ?: it.fetchedAt }
 }

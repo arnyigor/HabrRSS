@@ -32,6 +32,7 @@ class ArticleViewModel(
     private val mutableState = MutableStateFlow(ArticleUiState())
     val state: StateFlow<ArticleUiState> = mutableState
 
+    private var articleJob: Job? = null
     private var bookmarkJob: Job? = null
 
     fun dispatch(intent: ArticleIntent) {
@@ -46,7 +47,8 @@ class ArticleViewModel(
     fun openArticle(articleId: String) {
         if (mutableState.value.articleId == articleId && mutableState.value.article != null) return
         observeBookmark(articleId)
-        viewModelScope.launch {
+        articleJob?.cancel()
+        articleJob = viewModelScope.launch {
             mutableState.update {
                 it.copy(articleId = articleId, article = null, isLoading = true, errorMessage = null)
             }
@@ -63,7 +65,6 @@ class ArticleViewModel(
                 }
                 observeBookmark(article.id)
             } catch (e: CancellationException) {
-                mutableState.update { it.copy(isLoading = false) }
                 throw e
             } catch (e: Exception) {
                 mutableState.update {
@@ -74,7 +75,8 @@ class ArticleViewModel(
     }
 
     fun openArticleUrl(url: String) {
-        viewModelScope.launch {
+        articleJob?.cancel()
+        articleJob = viewModelScope.launch {
             mutableState.update { it.copy(article = null, isLoading = true, errorMessage = null) }
             try {
                 val article = repository.getArticleByUrl(url)
@@ -89,7 +91,6 @@ class ArticleViewModel(
                 }
                 observeBookmark(article.id)
             } catch (e: CancellationException) {
-                mutableState.update { it.copy(isLoading = false) }
                 throw e
             } catch (e: Exception) {
                 mutableState.update {
@@ -108,6 +109,8 @@ class ArticleViewModel(
     }
 
     fun close() {
+        articleJob?.cancel()
+        articleJob = null
         bookmarkJob?.cancel()
         bookmarkJob = null
         mutableState.value = ArticleUiState()

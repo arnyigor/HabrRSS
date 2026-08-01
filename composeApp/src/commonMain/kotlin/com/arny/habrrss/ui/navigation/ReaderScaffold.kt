@@ -224,23 +224,38 @@ private fun ReaderWideLayout(
             navHost(Modifier.weight(1f), true)
         }
         val article = articleState.article
-        if (state.isArticleOpen && article != null) {
+        val articleError = articleState.errorMessage
+        if (state.isArticleOpen) {
             VerticalDivider(Modifier.fillMaxHeight())
-            ArticleScreen(
-                modifier = Modifier.weight(1f),
-                article = article,
-                showBack = false,
-                settings = state.settings,
-                favoriteTagIds = state.favoriteTagIds,
-                favoriteHubIds = state.favoriteHubIds,
-                onBack = onCloseArticle,
-                onHubSelected = onHubSelected,
-                onFavoriteHubToggled = onFavoriteHubToggled,
-                onTagSelected = onTagSelected,
-                onFavoriteTagToggled = onFavoriteTagToggled,
-                isBookmarked = articleState.isBookmarked,
-                onBookmark = onArticleBookmarkToggled,
-            )
+            when {
+                article != null -> ArticleScreen(
+                    modifier = Modifier.weight(1f),
+                    article = article,
+                    showBack = false,
+                    settings = state.settings,
+                    favoriteTagIds = state.favoriteTagIds,
+                    favoriteHubIds = state.favoriteHubIds,
+                    onBack = onCloseArticle,
+                    onHubSelected = onHubSelected,
+                    onFavoriteHubToggled = onFavoriteHubToggled,
+                    onTagSelected = onTagSelected,
+                    onFavoriteTagToggled = onFavoriteTagToggled,
+                    isBookmarked = articleState.isBookmarked,
+                    onBookmark = onArticleBookmarkToggled,
+                )
+                articleError != null -> Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(articleError)
+                }
+                else -> Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
         }
     }
 }
@@ -472,13 +487,18 @@ private fun ArticleRoute(
     navigateToFeed: () -> Unit,
 ) {
     LaunchedEffect(route.articleId) {
-        viewModel.loadArticleInPane(route.articleId)
-        articleViewModel.openArticle(route.articleId)
+        viewModel.dispatch(FeedIntent.SelectArticle(route.articleId))
+        articleViewModel.dispatch(ArticleIntent.Open(route.articleId))
     }
 
     val articleState by articleViewModel.state.collectAsState()
     val article = articleState.article
-    if (article == null || articleState.isLoading) {
+    val articleError = articleState.errorMessage
+    if (articleError != null && article == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(articleError)
+        }
+    } else if (article == null || articleState.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
