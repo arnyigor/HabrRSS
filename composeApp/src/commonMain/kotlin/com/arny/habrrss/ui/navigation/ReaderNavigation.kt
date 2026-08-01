@@ -1,19 +1,15 @@
 package com.arny.habrrss.ui.navigation
 
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.MaterialTheme
@@ -139,22 +135,6 @@ internal fun ReaderTopBar(
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.SemiBold,
                 )
-            }
-        },
-        actions = {
-            if (state.activeFilterCount > 0) {
-                Text(
-                    text = "${state.activeFilterCount}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(8.dp))
-            }
-            IconButton(
-                onClick = onRefresh,
-                enabled = !state.isRefreshing,
-            ) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Обновить")
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(

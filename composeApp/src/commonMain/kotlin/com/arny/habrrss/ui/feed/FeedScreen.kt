@@ -19,7 +19,6 @@ import com.arny.habrrss.presentation.ReaderUiState
 internal fun FeedScreen(
     isWide: Boolean,
     state: ReaderUiState,
-    onFeedSelected: (String) -> Unit,
     onHubSelected: (String?) -> Unit,
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
@@ -32,7 +31,6 @@ internal fun FeedScreen(
     Column(Modifier.fillMaxSize()) {
         FeedFilterBar(
             state = state,
-            onFeedSelected = onFeedSelected,
             onHubSelected = onHubSelected,
             onTagSelected = onTagSelected,
             onClearFilters = onClearFilters,
@@ -57,7 +55,6 @@ private fun FeedScreenPreview() {
         FeedScreen(
             isWide = false,
             state = previewFeedState(),
-            onFeedSelected = {},
             onHubSelected = {},
             onTagSelected = {},
             onClearFilters = {},

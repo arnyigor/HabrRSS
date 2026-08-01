@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.presentation.ReaderUiState
@@ -37,12 +36,10 @@ import com.arny.habrrss.presentation.ReaderUiState
 @Composable
 internal fun FeedFilterBar(
     state: ReaderUiState,
-    onFeedSelected: (String) -> Unit,
     onHubSelected: (String?) -> Unit,
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
 ) {
-    val baseFeeds = remember(state.feeds) { state.feeds.filterNot { it.kind == FeedKind.Custom } }
     val favoriteHubs = remember(state.favoriteHubs, state.items) {
         state.favoriteHubs.map { (id, title) -> Hub(id, title) }
     }
@@ -73,19 +70,6 @@ internal fun FeedFilterBar(
                 onClick = { filtersExpanded = !filtersExpanded },
             )
             if (filtersExpanded) {
-                if (baseFeeds.isNotEmpty()) {
-                    SectionLabel("Потоки")
-                    ChipRow {
-                        baseFeeds.forEach { feed ->
-                            val isActive = feed.id == state.activeFeedId
-                            FeedFilterChip(
-                                title = if (isActive) "${feed.title} (${state.items.size})" else feed.title,
-                                selected = isActive,
-                                onClick = { if (!isActive) onFeedSelected(feed.id) },
-                            )
-                        }
-                    }
-                }
                 if (favoriteHubs.isNotEmpty()) {
                     SectionLabel("Избранные хабы")
                     ChipRow {

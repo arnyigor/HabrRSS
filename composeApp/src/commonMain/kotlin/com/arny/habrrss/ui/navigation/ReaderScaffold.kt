@@ -387,7 +387,6 @@ private fun FeedRoute(
     FeedScreen(
         isWide = isWide,
         state = state,
-        onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
         onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
         onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
@@ -409,7 +408,6 @@ private fun BookmarksRoute(
     FeedScreen(
         isWide = isWide,
         state = state,
-        onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
         onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
         onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
