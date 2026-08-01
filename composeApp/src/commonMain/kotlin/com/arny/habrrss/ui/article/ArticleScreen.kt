@@ -272,7 +272,7 @@ internal fun ArticleScreen(
     var searchQuery by remember { mutableStateOf("") }
     var currentMatchIndex by remember { mutableStateOf(0) }
     val searchMatches = remember(article, searchQuery) { findSearchMatches(article.blocks, searchQuery) }
-    val currentMatch = searchMatches.getOrNull(currentMatchIndex.coerceIn(0, searchMatches.lastIndex))
+    val currentMatch = searchMatches.getOrNull(currentMatchIndex.coerceIn(0, searchMatches.lastIndex.coerceAtLeast(0)))
 
     fun scrollToBlock(blockIndex: Int) {
         // LazyColumn layout: 0 = header, 1 = toolbar, 2 = source notice, then article blocks
