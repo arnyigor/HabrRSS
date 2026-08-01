@@ -24,15 +24,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
-import androidx.savedstate.serialization.SavedStateConfiguration
 import com.arny.habrrss.navigation.Screen
 import com.arny.habrrss.presentation.ArticleIntent
 import com.arny.habrrss.presentation.ArticleUiState
@@ -47,26 +44,16 @@ import com.arny.habrrss.ui.feed.FeedScreen
 import com.arny.habrrss.ui.search.SearchScreen
 import com.arny.habrrss.ui.settings.SettingsScreen
 import com.arny.habrrss.ui.sources.SourceScreen
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
-import kotlinx.serialization.modules.subclass
 
-/** Stateful entry: owns Navigation 3 back stack and connects ViewModels to stateless UI. */
+/** Stateful entry: owns Navigation 3 back stacks and connects ViewModels to stateless UI. */
 @Composable
 internal fun ReaderApp(
     state: ReaderUiState,
     viewModel: FeedViewModel,
     articleViewModel: ArticleViewModel,
 ) {
-    val navBackStack = rememberNavBackStack(
-        configuration = remember {
-            SavedStateConfiguration {
-                serializersModule = navigationSerializersModule
-            }
-        },
-        Screen.Feed,
-    )
-    val savedRoute = navBackStack.lastOrNull() as? Screen ?: Screen.Feed
+    val backStackManager = rememberReaderBackStackManager()
+    val currentRoute = backStackManager.currentRoute
     val articleState by articleViewModel.state.collectAsState()
 
     BoxWithConstraints(
@@ -76,60 +63,52 @@ internal fun ReaderApp(
             .safeContentPadding(),
     ) {
         val isWide = maxWidth >= WideLayoutMinWidth
-        val currentRoute = if (isWide && savedRoute is Screen.Article) Screen.Feed else savedRoute
+        val displayRoute = if (isWide && currentRoute is Screen.Article) backStackManager.currentTab else currentRoute
         val isArticleRoute = !isWide && currentRoute is Screen.Article
-        val navigateToTopLevel: (Screen) -> Unit = { screen ->
-            navBackStack.clear()
-            navBackStack.add(screen)
+        val closeArticle = {
             viewModel.closeArticle()
             articleViewModel.close()
         }
+        val navigateToTopLevel: (Screen) -> Unit = { screen ->
+            backStackManager.selectTopLevel(screen)
+            viewModel.selectDestination(screen.toDestination())
+            closeArticle()
+        }
         val popBackStack: () -> Unit = {
-            if (navBackStack.size > 1) {
-                val removed = navBackStack.removeAt(navBackStack.lastIndex)
-                if (removed is Screen.Article) {
-                    viewModel.closeArticle()
-                    articleViewModel.close()
-                }
+            val removed = backStackManager.popBackStack()
+            if (removed is Screen.Article) {
+                closeArticle()
             }
         }
         val openArticle: (String) -> Unit = { articleId ->
             viewModel.loadArticleInPane(articleId)
             articleViewModel.openArticle(articleId)
             if (!isWide) {
-                val articleRoute = Screen.Article(articleId)
-                if (navBackStack.lastOrNull() != articleRoute) {
-                    navBackStack.add(articleRoute)
-                }
+                backStackManager.navigate(Screen.Article(articleId))
             }
         }
         val navigateToFeed: () -> Unit = {
+            backStackManager.selectTopLevel(Screen.Feed)
             viewModel.selectDestination(Screen.Feed.toDestination())
-            navigateToTopLevel(Screen.Feed)
         }
 
         LaunchedEffect(isWide, state.isArticleOpen, state.selectedArticleId) {
             val articleId = state.selectedArticleId
             if (!isWide && state.isArticleOpen && articleId != null) {
-                val articleRoute = Screen.Article(articleId)
-                if (navBackStack.lastOrNull() != articleRoute) {
-                    navBackStack.add(articleRoute)
-                }
+                backStackManager.navigate(Screen.Article(articleId))
             }
         }
 
         ReaderAppContent(
             state = state,
             articleState = articleState,
-            currentRoute = currentRoute,
+            currentRoute = displayRoute,
+            selectedTopLevel = backStackManager.currentTab,
             isArticleRoute = isArticleRoute,
             onRefresh = viewModel::refresh,
             onDestinationSelected = viewModel::selectDestination,
             onTopLevelSelected = navigateToTopLevel,
-            onCloseArticle = {
-                viewModel.closeArticle()
-                articleViewModel.close()
-            },
+            onCloseArticle = closeArticle,
             onHubSelected = { hubId ->
                 viewModel.selectHub(hubId)
                 navigateToFeed()
@@ -143,7 +122,7 @@ internal fun ReaderApp(
             onArticleBookmarkToggled = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
             navHost = { modifier, wide ->
                 AppNavHost(
-                    backStack = if (wide) listOf(currentRoute) else navBackStack,
+                    backStack = if (wide) listOf(displayRoute) else backStackManager.currentBackStack,
                     state = state,
                     viewModel = viewModel,
                     articleViewModel = articleViewModel,
@@ -164,6 +143,7 @@ internal fun ReaderAppContent(
     state: ReaderUiState,
     articleState: ArticleUiState,
     currentRoute: Screen?,
+    selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
@@ -183,6 +163,7 @@ internal fun ReaderAppContent(
                 state = state,
                 articleState = articleState,
                 currentRoute = currentRoute,
+                selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
                 onRefresh = onRefresh,
                 onDestinationSelected = onDestinationSelected,
@@ -199,6 +180,7 @@ internal fun ReaderAppContent(
             ReaderMobileLayout(
                 state = state,
                 currentRoute = currentRoute,
+                selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
                 onRefresh = onRefresh,
                 onDestinationSelected = onDestinationSelected,
@@ -214,6 +196,7 @@ private fun ReaderWideLayout(
     state: ReaderUiState,
     articleState: ArticleUiState,
     currentRoute: Screen?,
+    selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
@@ -228,7 +211,7 @@ private fun ReaderWideLayout(
 ) {
     Row(Modifier.fillMaxSize()) {
         ReaderRail(
-            currentRoute = currentRoute,
+            selectedTopLevel = selectedTopLevel,
             onDestinationSelected = onDestinationSelected,
             onScreenSelected = onTopLevelSelected,
         )
@@ -265,6 +248,7 @@ private fun ReaderWideLayout(
 private fun ReaderMobileLayout(
     state: ReaderUiState,
     currentRoute: Screen?,
+    selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
@@ -275,7 +259,7 @@ private fun ReaderMobileLayout(
         bottomBar = {
             if (!isArticleRoute) {
                 ReaderBottomBar(
-                    currentRoute = currentRoute,
+                    selectedTopLevel = selectedTopLevel,
                     onDestinationSelected = onDestinationSelected,
                     onScreenSelected = onTopLevelSelected,
                 )
@@ -530,6 +514,7 @@ private fun ReaderAppContentPreview() {
             state = ReaderUiState(),
             articleState = ArticleUiState(),
             currentRoute = Screen.Feed,
+            selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
             onRefresh = {},
             onDestinationSelected = {},
@@ -549,13 +534,3 @@ private fun ReaderAppContentPreview() {
     }
 }
 
-private val navigationSerializersModule = SerializersModule {
-    polymorphic(NavKey::class) {
-        subclass(Screen.Feed::class, Screen.Feed.serializer())
-        subclass(Screen.Sources::class, Screen.Sources.serializer())
-        subclass(Screen.Bookmarks::class, Screen.Bookmarks.serializer())
-        subclass(Screen.Search::class, Screen.Search.serializer())
-        subclass(Screen.Settings::class, Screen.Settings.serializer())
-        subclass(Screen.Article::class, Screen.Article.serializer())
-    }
-}

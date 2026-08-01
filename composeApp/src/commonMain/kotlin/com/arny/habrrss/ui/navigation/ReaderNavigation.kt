@@ -43,7 +43,7 @@ private val bottomNavItems = listOf(
 
 @Composable
 internal fun ReaderRail(
-    currentRoute: Screen?,
+    selectedTopLevel: Screen,
     onDestinationSelected: (ReaderDestination) -> Unit,
     onScreenSelected: (Screen) -> Unit,
 ) {
@@ -58,7 +58,7 @@ internal fun ReaderRail(
         },
     ) {
         bottomNavItems.forEach { (screen, label, icon) ->
-            val isSelected = currentRoute.topLevelScreen() == screen
+            val isSelected = selectedTopLevel == screen
             NavigationRailItem(
                 selected = isSelected,
                 onClick = {
@@ -74,13 +74,13 @@ internal fun ReaderRail(
 
 @Composable
 internal fun ReaderBottomBar(
-    currentRoute: Screen?,
+    selectedTopLevel: Screen,
     onDestinationSelected: (ReaderDestination) -> Unit,
     onScreenSelected: (Screen) -> Unit,
 ) {
     NavigationBar {
         bottomNavItems.forEach { (screen, label, icon) ->
-            val isSelected = currentRoute.topLevelScreen() == screen
+            val isSelected = selectedTopLevel == screen
             NavigationBarItem(
                 selected = isSelected,
                 onClick = {
@@ -101,11 +101,6 @@ internal fun Screen.toDestination(): ReaderDestination = when (this) {
     Screen.Search -> ReaderDestination.Search
     Screen.Settings -> ReaderDestination.Settings
     is Screen.Article -> ReaderDestination.Feed
-}
-
-private fun Screen?.topLevelScreen(): Screen? = when (this) {
-    is Screen.Article -> Screen.Feed
-    else -> this
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
