@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,6 +62,7 @@ import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun ArticleBlockView(
@@ -73,6 +77,7 @@ internal fun ArticleBlockView(
         is ArticleBlock.CodeBlock -> CodeBlockView(
             language = block.language,
             code = block.code,
+            settings = settings,
             modifier = modifier,
         )
         is ArticleBlock.Heading -> InlineText(
@@ -135,6 +140,7 @@ internal fun ArticleBlockView(
         )
         is ArticleBlock.TableBlock -> TableBlockView(
             block = block,
+            settings = settings,
             modifier = modifier,
             onLinkClick = onLinkClick,
             highlightQuery = highlightQuery,
@@ -350,13 +356,29 @@ private fun QuoteBlockView(
 private fun CodeBlockView(
     language: String?,
     code: String,
+    settings: FeedSettings,
     modifier: Modifier,
 ) {
     val actions = rememberArticleActions()
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val codeColors = if (isDarkTheme) CodeHighlightTheme.dark() else CodeHighlightTheme.light()
+    var copyStatus by remember(code) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(copyStatus) {
+        if (copyStatus != null) {
+            delay(1_600)
+            copyStatus = null
+        }
+    }
+
     Surface(
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = codeColors.background,
+        contentColor = codeColors.text,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (copyStatus == "Скопировано") MaterialTheme.colorScheme.primary else codeColors.border,
+        ),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column {
@@ -367,15 +389,33 @@ private fun CodeBlockView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = language ?: "code",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                TextButton(onClick = { actions.copyText(code) }) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = language?.takeIf { it.isNotBlank() } ?: "code",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = codeColors.header,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    AnimatedVisibility(visible = copyStatus != null) {
+                        Text(
+                            text = copyStatus.orEmpty(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (copyStatus == "Скопировано") {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        copyStatus = if (actions.copyText(code)) "Скопировано" else "Не удалось скопировать"
+                    },
+                ) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Копировать")
+                    Text(if (copyStatus == "Скопировано") "Готово" else "Копировать")
                 }
             }
             Box(
@@ -385,8 +425,12 @@ private fun CodeBlockView(
             ) {
                 SelectionContainer {
                     Text(
-                        text = remember(code, language) { code.toHighlightedCode(language) },
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = remember(code, language, codeColors) { code.toHighlightedCode(language, codeColors) },
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = codeColors.text,
+                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * settings.fontScale,
+                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * settings.lineHeightScale,
+                        ),
                         fontFamily = FontFamily.Monospace,
                     )
                 }
@@ -398,6 +442,7 @@ private fun CodeBlockView(
 @Composable
 private fun TableBlockView(
     block: ArticleBlock.TableBlock,
+    settings: FeedSettings,
     modifier: Modifier,
     onLinkClick: ((String) -> Unit)? = null,
     highlightQuery: String? = null,
@@ -417,16 +462,19 @@ private fun TableBlockView(
         Box(Modifier.horizontalScroll(rememberScrollState())) {
             Column {
                 block.rows.forEachIndexed { rowIndex, row ->
-                    Row {
+                    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
                         val isFirstRow = rowIndex == 0
                         repeat(columnCount) { columnIndex ->
                             TableCellContent(
                                 cell = row.getOrNull(columnIndex).orEmpty(),
                                 isHeader = isFirstRow,
+                                settings = settings,
                                 onLinkClick = onLinkClick,
                                 highlightQuery = highlightQuery,
                                 highlightCurrentRange = highlightCurrentRange,
-                                modifier = Modifier.width(cellWidth),
+                                modifier = Modifier
+                                    .width(cellWidth)
+                                    .fillMaxHeight(),
                             )
                         }
                     }
@@ -440,6 +488,7 @@ private fun TableBlockView(
 private fun TableCellContent(
     cell: List<ArticleBlock>,
     isHeader: Boolean,
+    settings: FeedSettings,
     onLinkClick: ((String) -> Unit)?,
     highlightQuery: String? = null,
     highlightCurrentRange: IntRange? = null,
@@ -454,7 +503,7 @@ private fun TableCellContent(
             cell.forEach { child ->
                 ArticleBlockView(
                     block = child,
-                    settings = FeedSettings.defaults(),
+                    settings = settings,
                     modifier = Modifier,
                     onLinkClick = onLinkClick,
                     highlightQuery = highlightQuery,

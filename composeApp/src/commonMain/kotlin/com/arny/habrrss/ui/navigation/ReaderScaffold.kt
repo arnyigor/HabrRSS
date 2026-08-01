@@ -475,6 +475,7 @@ private fun SettingsRoute(
         onCardModeChanged = { viewModel.dispatch(FeedIntent.SetFeedCardMode(it)) },
         onFontScaleChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(fontScale = value) }) },
         onLineHeightChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(lineHeightScale = value) }) },
+        onThemeModeChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(themeMode = value) }) },
         onOpenLinksInsideChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(openLinksInsideApp = value) }) },
         onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
         onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },

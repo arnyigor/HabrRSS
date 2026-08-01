@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.arny.habrrss.domain.models.ThemeMode
 import com.arny.habrrss.presentation.FeedCardMode
 import com.arny.habrrss.presentation.ReaderUiState
 
@@ -28,6 +29,7 @@ internal fun SettingsScreen(
     onCardModeChanged: (FeedCardMode) -> Unit,
     onFontScaleChanged: (Float) -> Unit,
     onLineHeightChanged: (Float) -> Unit,
+    onThemeModeChanged: (ThemeMode) -> Unit,
     onOpenLinksInsideChanged: (Boolean) -> Unit,
     onFavoriteHubToggled: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
@@ -40,6 +42,24 @@ internal fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text("Настройки", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        SettingsSectionTitle("Оформление")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = state.settings.themeMode == mode,
+                    onClick = { onThemeModeChanged(mode) },
+                    label = {
+                        Text(
+                            when (mode) {
+                                ThemeMode.System -> "Системная"
+                                ThemeMode.Light -> "Светлая"
+                                ThemeMode.Dark -> "Тёмная"
+                            },
+                        )
+                    },
+                )
+            }
+        }
         SettingsSectionTitle("Чтение")
         SliderSetting(
             label = "Размер текста",

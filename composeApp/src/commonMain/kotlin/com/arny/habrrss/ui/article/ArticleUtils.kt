@@ -55,7 +55,42 @@ private fun AnnotatedString.Builder.appendInlineNode(node: InlineNode) {
     }
 }
 
-internal fun String.toHighlightedCode(language: String?): AnnotatedString {
+internal data class CodeHighlightTheme(
+    val background: Color,
+    val border: Color,
+    val header: Color,
+    val text: Color,
+    val keyword: Color,
+    val string: Color,
+    val comment: Color,
+    val number: Color,
+) {
+    companion object {
+        fun light(): CodeHighlightTheme = CodeHighlightTheme(
+            background = Color(0xFFF7F9FC),
+            border = Color(0xFFD0D7DE),
+            header = Color(0xFF475569),
+            text = Color(0xFF0F172A),
+            keyword = Color(0xFF0550AE),
+            string = Color(0xFF8A4600),
+            comment = Color(0xFF57606A),
+            number = Color(0xFF953800),
+        )
+
+        fun dark(): CodeHighlightTheme = CodeHighlightTheme(
+            background = Color(0xFF111827),
+            border = Color(0xFF334155),
+            header = Color(0xFFCBD5E1),
+            text = Color(0xFFE5E7EB),
+            keyword = Color(0xFF7DD3FC),
+            string = Color(0xFFFBBF24),
+            comment = Color(0xFF94A3B8),
+            number = Color(0xFFFCA5A5),
+        )
+    }
+}
+
+internal fun String.toHighlightedCode(language: String?, theme: CodeHighlightTheme = CodeHighlightTheme.light()): AnnotatedString {
     val keywords = when (language?.lowercase()) {
         "kotlin", "kt" -> setOf(
             "actual", "as", "break", "class", "continue", "data", "else", "expect", "false",
@@ -69,33 +104,33 @@ internal fun String.toHighlightedCode(language: String?): AnnotatedString {
         )
         else -> emptySet()
     }
-    if (keywords.isEmpty()) return AnnotatedString(this)
-
     val code = this
-    val keywordColor = Color(0xFF005FAD)
-    val stringColor = Color(0xFF8A4B00)
-    val commentColor = Color(0xFF6A737D)
 
     return buildAnnotatedString {
         var index = 0
-        val tokenRegex = Regex("""//.*|"(?:\\.|[^"\\])*"|\b[A-Za-z_][A-Za-z0-9_]*\b""")
+        val tokenRegex = Regex("""//.*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][A-Za-z0-9_]*\b""")
         tokenRegex.findAll(code).forEach { match ->
-            if (match.range.first > index) append(code.substring(index, match.range.first))
+            if (match.range.first > index) {
+                withStyle(SpanStyle(color = theme.text)) {
+                    append(code.substring(index, match.range.first))
+                }
+            }
             val token = match.value
             val style = when {
-                token.startsWith("//") -> SpanStyle(color = commentColor, fontStyle = FontStyle.Italic)
-                token.startsWith("\"") -> SpanStyle(color = stringColor)
-                token in keywords -> SpanStyle(color = keywordColor, fontWeight = FontWeight.Bold)
-                else -> null
+                token.startsWith("//") || token.startsWith("/*") -> SpanStyle(color = theme.comment, fontStyle = FontStyle.Italic)
+                token.startsWith("\"") || token.startsWith("'") -> SpanStyle(color = theme.string)
+                token.firstOrNull()?.isDigit() == true -> SpanStyle(color = theme.number)
+                token in keywords -> SpanStyle(color = theme.keyword, fontWeight = FontWeight.Bold)
+                else -> SpanStyle(color = theme.text)
             }
-            if (style != null) {
-                withStyle(style) { append(token) }
-            } else {
-                append(token)
-            }
+            withStyle(style) { append(token) }
             index = match.range.last + 1
         }
-        if (index < code.length) append(code.substring(index))
+        if (index < code.length) {
+            withStyle(SpanStyle(color = theme.text)) {
+                append(code.substring(index))
+            }
+        }
     }
 }
 
