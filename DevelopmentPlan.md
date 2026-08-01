@@ -9,7 +9,7 @@
 - [x] Navigation 3: стабильные back stacks для top-level разделов, корректный back/open article.
 - [x] MVI: формализовать intents/state/effects, убрать прямые вызовы ViewModel из UI где возможно.
 - [x] ViewModels: разделить ответственность FeedViewModel и ArticleViewModel.
-- [ ] Single Source of Truth: UI подписан на БД Flow, сеть только пишет в БД.
+- [x] Single Source of Truth: UI подписан на БД Flow, сеть только пишет в БД.
 - [ ] Paging 3: нормальная бесконечная подгрузка через pager, без ручных костылей в UI.
 - [ ] UI/UX: простой сценарий тег/хаб -> загрузка при пустом кеше -> чтение списка.
 - [ ] Stateful/stateless Compose + previews для основных экранов.
