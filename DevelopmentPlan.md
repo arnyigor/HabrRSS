@@ -11,5 +11,5 @@
 - [x] ViewModels: разделить ответственность FeedViewModel и ArticleViewModel.
 - [x] Single Source of Truth: UI подписан на БД Flow, сеть только пишет в БД.
 - [x] Paging 3: нормальная бесконечная подгрузка через pager, без ручных костылей в UI.
-- [ ] UI/UX: простой сценарий тег/хаб -> загрузка при пустом кеше -> чтение списка.
-- [ ] Stateful/stateless Compose + previews для основных экранов.
+- [x] UI/UX: простой сценарий тег/хаб -> загрузка при пустом кеше -> чтение списка.
+- [x] Stateful/stateless Compose + previews для основных экранов.

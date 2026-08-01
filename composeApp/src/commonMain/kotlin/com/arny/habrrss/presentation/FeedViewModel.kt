@@ -279,6 +279,7 @@ class FeedViewModel(
                 isArticleOpen = false,
             )
         }
+        refreshIfCurrentFeedIsEmpty()
     }
 
     fun selectTag(tagId: String?) {
@@ -291,6 +292,7 @@ class FeedViewModel(
                 isArticleOpen = false,
             )
         }
+        refreshIfCurrentFeedIsEmpty()
     }
 
     fun toggleFavoriteTag(tagId: String) {
@@ -423,6 +425,12 @@ class FeedViewModel(
                     },
                 )
             }
+        }
+    }
+
+    private fun refreshIfCurrentFeedIsEmpty() {
+        if (mutableState.value.items.isEmpty()) {
+            refresh()
         }
     }
 
