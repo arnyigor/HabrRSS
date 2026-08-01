@@ -257,7 +257,7 @@ private fun RelatedArticleCard(
                         modifier = Modifier.weight(1f, fill = false),
                     )
                 }
-                humanReadableDate(item.publishedAt).takeIf { it.isNotBlank() }?.let { date ->
+                humanReadableDate(item.publishedAt, item.publishedAtEpoch).takeIf { it.isNotBlank() }?.let { date ->
                     Text(
                         text = "  $date",
                         style = MaterialTheme.typography.bodySmall,

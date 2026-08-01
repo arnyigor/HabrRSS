@@ -17,13 +17,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -37,10 +43,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleBlock
@@ -251,6 +266,31 @@ internal fun ArticleScreen(
     val coroutineScope = rememberCoroutineScope()
     val showScrollToTop = (articleListState.firstVisibleItemIndex > 0 || articleListState.firstVisibleItemScrollOffset > 300) &&
         !articleListState.isScrollInProgress
+
+    // In-article text search state
+    var isSearchVisible by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var currentMatchIndex by remember { mutableStateOf(0) }
+    val searchMatches = remember(article, searchQuery) { findSearchMatches(article.blocks, searchQuery) }
+    val currentMatch = searchMatches.getOrNull(currentMatchIndex.coerceIn(0, searchMatches.lastIndex))
+
+    fun scrollToBlock(blockIndex: Int) {
+        // LazyColumn layout: 0 = header, 1 = toolbar, 2 = source notice, then article blocks
+        coroutineScope.launch { articleListState.animateScrollToItem(BLOCKS_OFFSET + blockIndex) }
+    }
+
+    fun goToPreviousMatch() {
+        if (searchMatches.isEmpty()) return
+        currentMatchIndex = (currentMatchIndex - 1 + searchMatches.size) % searchMatches.size
+        scrollToBlock(searchMatches[currentMatchIndex].blockIndex)
+    }
+
+    fun goToNextMatch() {
+        if (searchMatches.isEmpty()) return
+        currentMatchIndex = (currentMatchIndex + 1) % searchMatches.size
+        scrollToBlock(searchMatches[currentMatchIndex].blockIndex)
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -260,6 +300,7 @@ internal fun ArticleScreen(
                 onBack = onBack,
                 isBookmarked = isBookmarked,
                 onBookmark = onBookmark,
+                onSearchClick = { isSearchVisible = true },
             )
         },
         floatingActionButton = {
@@ -274,58 +315,83 @@ internal fun ArticleScreen(
             }
         },
     ) { innerPadding ->
-        ArticleScrollContainer(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            state = articleListState,
-        ) {
-            LazyColumn(
-                state = articleListState,
+        Column(Modifier.fillMaxSize().padding(innerPadding)) {
+            if (isSearchVisible) {
+                ArticleSearchBar(
+                    query = searchQuery,
+                    onQueryChange = {
+                        searchQuery = it
+                        currentMatchIndex = 0
+                    },
+                    matchCount = searchMatches.size,
+                    currentIndex = currentMatchIndex,
+                    onPrevious = ::goToPreviousMatch,
+                    onNext = ::goToNextMatch,
+                    onClose = {
+                        isSearchVisible = false
+                        searchQuery = ""
+                        currentMatchIndex = 0
+                    },
+                )
+            }
+            ArticleScrollContainer(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            item {
-                ArticleHeader(
-                    article = article,
-                    showBack = false,
-                    favoriteTagIds = favoriteTagIds,
-                    favoriteHubIds = favoriteHubIds,
-                    onBack = onBack,
-                    onHubSelected = onHubSelected,
-                    onFavoriteHubToggled = onFavoriteHubToggled,
-                    onTagSelected = onTagSelected,
-                    onFavoriteTagToggled = onFavoriteTagToggled,
-                )
-            }
-            item {
-                ArticleToolbar(
-                    article = article,
-                    isBookmarked = isBookmarked,
-                    onBookmark = onBookmark,
-                )
-            }
-            item {
-                ArticleSourceNotice(article.sourceNotice)
-            }
-            items(article.blocks) { block ->
-                ArticleBlockView(
-                    block = block,
-                    settings = settings,
-                    modifier = Modifier.widthIn(max = 860.dp),
-                    onLinkClick = { url -> actions.openUrl(url) },
-                )
-            }
-            item {
-                ArticleFooterSections(
-                    article = article,
-                    comments = comments,
-                    relatedArticles = relatedArticles,
-                    isLoadingExtras = isLoadingExtras,
-                    onRelatedArticleSelected = onRelatedArticleSelected,
-                    modifier = Modifier.widthIn(max = 860.dp),
-                )
-            }
+                state = articleListState,
+            ) {
+                LazyColumn(
+                    state = articleListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    item {
+                        ArticleHeader(
+                            article = article,
+                            showBack = false,
+                            favoriteTagIds = favoriteTagIds,
+                            favoriteHubIds = favoriteHubIds,
+                            onBack = onBack,
+                            onHubSelected = onHubSelected,
+                            onFavoriteHubToggled = onFavoriteHubToggled,
+                            onTagSelected = onTagSelected,
+                            onFavoriteTagToggled = onFavoriteTagToggled,
+                        )
+                    }
+                    item {
+                        ArticleToolbar(
+                            article = article,
+                            isBookmarked = isBookmarked,
+                            onBookmark = onBookmark,
+                        )
+                    }
+                    item {
+                        ArticleSourceNotice(article.sourceNotice)
+                    }
+                    itemsIndexed(article.blocks) { index, block ->
+                        ArticleBlockView(
+                            block = block,
+                            settings = settings,
+                            modifier = Modifier.widthIn(max = 860.dp),
+                            onLinkClick = { url -> actions.openUrl(url) },
+                            highlightQuery = if (isSearchVisible) searchQuery.trim().takeIf { it.isNotEmpty() } else null,
+                            highlightCurrentRange = currentMatch
+                                ?.takeIf { it.blockIndex == index }
+                                ?.ranges
+                                ?.firstOrNull(),
+                        )
+                    }
+                    item {
+                        ArticleFooterSections(
+                            article = article,
+                            comments = comments,
+                            relatedArticles = relatedArticles,
+                            isLoadingExtras = isLoadingExtras,
+                            onRelatedArticleSelected = onRelatedArticleSelected,
+                            modifier = Modifier.widthIn(max = 860.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -339,6 +405,7 @@ private fun ArticleTopBar(
     onBack: () -> Unit,
     isBookmarked: Boolean,
     onBookmark: () -> Unit,
+    onSearchClick: (() -> Unit)? = null,
 ) {
     TopAppBar(
         navigationIcon = {
@@ -357,6 +424,11 @@ private fun ArticleTopBar(
             )
         },
         actions = {
+            if (onSearchClick != null) {
+                IconButton(onClick = onSearchClick) {
+                    Icon(Icons.Filled.Search, contentDescription = "Поиск в статье")
+                }
+            }
             IconButton(onClick = onBookmark) {
                 Icon(
                     if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
@@ -366,6 +438,81 @@ private fun ArticleTopBar(
         },
     )
 }
+
+@Composable
+private fun ArticleSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    matchCount: Int,
+    currentIndex: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge,
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                decorationBox = { innerTextField ->
+                    if (query.isEmpty()) {
+                        Text(
+                            text = "Поиск в статье",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    innerTextField()
+                },
+            )
+            Text(
+                text = when {
+                    matchCount == 0 -> "Нет совпадений"
+                    else -> "${currentIndex + 1}/$matchCount"
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            IconButton(onClick = onPrevious, enabled = matchCount > 0) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Предыдущее совпадение")
+            }
+            IconButton(onClick = onNext, enabled = matchCount > 0) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Следующее совпадение")
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Filled.Close, contentDescription = "Закрыть поиск")
+            }
+        }
+    }
+}
+
+/** LazyColumn items before article blocks: 0 = header, 1 = toolbar, 2 = source notice. */
+private const val BLOCKS_OFFSET = 3
 
 @Composable
 private fun ArticleFallbackView(

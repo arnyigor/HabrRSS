@@ -109,7 +109,7 @@ internal fun List<InlineNode>.plainText(): String = joinToString("") { node ->
     }
 }
 
-private fun ArticleBlock.blockText(): String = when (this) {
+internal fun ArticleBlock.blockText(): String = when (this) {
     is ArticleBlock.CodeBlock -> code
     is ArticleBlock.Heading -> inline.plainText()
     is ArticleBlock.Image -> alt ?: url

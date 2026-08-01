@@ -48,16 +48,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
+import kotlin.math.max
 
 @Composable
 internal fun ArticleBlockView(
@@ -65,6 +70,8 @@ internal fun ArticleBlockView(
     settings: FeedSettings,
     modifier: Modifier,
     onLinkClick: ((String) -> Unit)? = null,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
 ) {
     when (block) {
         is ArticleBlock.CodeBlock -> CodeBlockView(
@@ -84,6 +91,8 @@ internal fun ArticleBlockView(
                 color = MaterialTheme.colorScheme.onSurface,
             ),
             onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
         )
         is ArticleBlock.Image -> ArticleContentImage(
             imageUrl = block.url,
@@ -97,6 +106,8 @@ internal fun ArticleBlockView(
             settings = settings,
             modifier = modifier,
             onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
         )
         is ArticleBlock.Paragraph -> InlineText(
             inline = block.inline,
@@ -107,20 +118,32 @@ internal fun ArticleBlockView(
                 color = MaterialTheme.colorScheme.onSurface,
             ),
             onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
         )
         is ArticleBlock.Quote -> QuoteBlockView(
             block = block,
             settings = settings,
             modifier = modifier,
             onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
         )
         is ArticleBlock.Spoiler -> SpoilerBlockView(
             block = block,
             settings = settings,
             modifier = modifier,
             onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
         )
-        is ArticleBlock.TableBlock -> TableBlockView(block, modifier, onLinkClick)
+        is ArticleBlock.TableBlock -> TableBlockView(
+            block = block,
+            modifier = modifier,
+            onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
+        )
         is ArticleBlock.UnknownHtml -> Text(
             text = block.html,
             modifier = modifier,
@@ -135,6 +158,8 @@ private fun SpoilerBlockView(
     settings: FeedSettings,
     modifier: Modifier,
     onLinkClick: ((String) -> Unit)? = null,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
 ) {
     var isExpanded by remember(block.title) { mutableStateOf(false) }
 
@@ -183,6 +208,8 @@ private fun SpoilerBlockView(
                             settings = settings,
                             modifier = Modifier.fillMaxWidth(),
                             onLinkClick = onLinkClick,
+                            highlightQuery = highlightQuery,
+                            highlightCurrentRange = highlightCurrentRange,
                         )
                     }
                 }
@@ -197,8 +224,13 @@ private fun InlineText(
     modifier: Modifier,
     style: TextStyle,
     onLinkClick: ((String) -> Unit)? = null,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
 ) {
-    val annotatedString = remember(inline) { inline.toAnnotatedString() }
+    val base = remember(inline) { inline.toAnnotatedString() }
+    val annotatedString = remember(base, highlightQuery, highlightCurrentRange) {
+        base.withSearchHighlight(highlightQuery ?: "", highlightCurrentRange)
+    }
     if (onLinkClick != null) {
         // Clickable text with link handling using clickable + pointerInput
         val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -246,6 +278,8 @@ private fun ListBlockView(
     settings: FeedSettings,
     modifier: Modifier,
     onLinkClick: ((String) -> Unit)? = null,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         block.items.forEachIndexed { index, item ->
@@ -269,6 +303,8 @@ private fun ListBlockView(
                             settings = settings,
                             modifier = Modifier.fillMaxWidth(),
                             onLinkClick = onLinkClick,
+                            highlightQuery = highlightQuery,
+                            highlightCurrentRange = highlightCurrentRange,
                         )
                     }
                 }
@@ -283,6 +319,8 @@ private fun QuoteBlockView(
     settings: FeedSettings,
     modifier: Modifier,
     onLinkClick: ((String) -> Unit)? = null,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -304,6 +342,8 @@ private fun QuoteBlockView(
                     settings = settings,
                     modifier = Modifier.fillMaxWidth(),
                     onLinkClick = onLinkClick,
+                    highlightQuery = highlightQuery,
+                    highlightCurrentRange = highlightCurrentRange,
                 )
             }
         }
@@ -364,30 +404,115 @@ private fun TableBlockView(
     block: ArticleBlock.TableBlock,
     modifier: Modifier,
     onLinkClick: ((String) -> Unit)? = null,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
 ) {
+    if (block.rows.isEmpty()) return
+    val columnCount = block.rows.maxOfOrNull { it.size } ?: 0
+    if (columnCount == 0) return
     Box(modifier.horizontalScroll(rememberScrollState())) {
-        Column {
-            block.rows.forEach { row ->
-                Row {
-                    row.forEach { cell ->
-                        Surface(
-                            modifier = Modifier.widthIn(min = 140.dp, max = 260.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            color = MaterialTheme.colorScheme.surface,
-                        ) {
-                            Column(Modifier.padding(8.dp)) {
-                                cell.forEach { child ->
-                                    ArticleBlockView(
-                                        block = child,
-                                        settings = FeedSettings.defaults(),
-                                        modifier = Modifier,
-                                        onLinkClick = onLinkClick,
-                                    )
-                                }
-                            }
-                        }
-                    }
+        TableLayout(
+            rows = block.rows,
+            columnCount = columnCount,
+            modifier = Modifier,
+            onLinkClick = onLinkClick,
+            highlightQuery = highlightQuery,
+            highlightCurrentRange = highlightCurrentRange,
+        )
+    }
+}
+
+/**
+ * Aligns table columns across rows. Column width is the widest cell in that column
+ * (capped), so rows with different cell counts or content lengths stay aligned.
+ */
+@Composable
+private fun TableLayout(
+    rows: List<List<List<ArticleBlock>>>,
+    columnCount: Int,
+    modifier: Modifier,
+    onLinkClick: ((String) -> Unit)?,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
+) {
+    val minCellWidth = 80.dp
+    val maxCellWidth = 320.dp
+    SubcomposeLayout(modifier = modifier) {
+        val cellSlots: List<List<Measurable>> = rows.map { row ->
+            row.map { cell ->
+                subcompose(Unit) {
+                    TableCellContent(
+                        cell = cell,
+                        isHeader = false,
+                        onLinkClick = onLinkClick,
+                        highlightQuery = highlightQuery,
+                        highlightCurrentRange = highlightCurrentRange,
+                    )
+                }.single()
+            }
+        }
+
+        // Pass 1: intrinsic width per cell (bounded so long text does not blow up layout)
+        val intrinsic: List<List<Placeable>> = cellSlots.map { row ->
+            row.map { it.measure(Constraints(maxWidth = maxCellWidth.roundToPx())) }
+        }
+
+        val columnWidths = IntArray(columnCount) { col ->
+            var maxWidth = 0
+            intrinsic.forEach { row ->
+                if (col < row.size) maxWidth = max(maxWidth, row[col].width)
+            }
+            maxWidth.coerceIn(minCellWidth.roundToPx(), maxCellWidth.roundToPx())
+        }
+
+        // Pass 2: fixed width per column so text wraps consistently and columns align
+        val placed: List<List<Placeable>> = cellSlots.mapIndexed { rowIndex, row ->
+            row.mapIndexed { colIndex, measurable ->
+                val width = columnWidths.getOrElse(colIndex) { minCellWidth.roundToPx() }
+                measurable.measure(Constraints(minWidth = width, maxWidth = width))
+            }
+        }
+
+        val rowHeights = placed.map { row -> row.maxOfOrNull { it.height } ?: 0 }
+        val totalWidth = columnWidths.sum()
+        val totalHeight = rowHeights.sum()
+
+        layout(totalWidth, totalHeight) {
+            var y = 0
+            placed.forEachIndexed { rowIndex, row ->
+                var x = 0
+                row.forEachIndexed { colIndex, placeable ->
+                    placeable.place(x, y)
+                    x += columnWidths.getOrElse(colIndex) { minCellWidth.roundToPx() }
                 }
+                y += rowHeights[rowIndex]
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableCellContent(
+    cell: List<ArticleBlock>,
+    isHeader: Boolean,
+    onLinkClick: ((String) -> Unit)?,
+    highlightQuery: String? = null,
+    highlightCurrentRange: IntRange? = null,
+) {
+    Surface(
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = if (isHeader) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            cell.forEach { child ->
+                ArticleBlockView(
+                    block = child,
+                    settings = FeedSettings.defaults(),
+                    modifier = Modifier,
+                    onLinkClick = onLinkClick,
+                    highlightQuery = highlightQuery,
+                    highlightCurrentRange = highlightCurrentRange,
+                )
             }
         }
     }

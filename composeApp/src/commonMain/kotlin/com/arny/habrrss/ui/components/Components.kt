@@ -84,11 +84,3 @@ internal fun EmptyState(
         }
     }
 }
-
-internal fun humanReadableDate(value: String?): String {
-    if (value.isNullOrBlank()) return ""
-    return value
-        .removeSuffix("Z")
-        .replace("T", " · ")
-        .take(18)
-}

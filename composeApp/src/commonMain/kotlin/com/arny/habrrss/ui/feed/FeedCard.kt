@@ -162,7 +162,7 @@ private fun FeedCardAuthorLine(item: FeedItem) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        humanReadableDate(item.publishedAt).takeIf { it.isNotBlank() }?.let { date ->
+        humanReadableDate(item.publishedAt, item.publishedAtEpoch).takeIf { it.isNotBlank() }?.let { date ->
             Text(
                 text = "  $date",
                 style = MaterialTheme.typography.bodySmall,
