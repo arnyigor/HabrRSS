@@ -273,7 +273,6 @@ class FeedViewModel(
         updateState {
             it.copy(
                 selectedHubId = if (it.selectedHubId == hubId) null else hubId,
-                selectedTagId = null,
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
@@ -286,7 +285,6 @@ class FeedViewModel(
         updateState {
             it.copy(
                 selectedTagId = if (it.selectedTagId == tagId) null else tagId,
-                selectedHubId = null,
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
@@ -326,9 +324,7 @@ class FeedViewModel(
         updateState {
             it.copy(
                 searchQuery = query,
-                selectedHubId = null,
-                selectedTagId = null,
-                selectedDestination = ReaderDestination.Search,
+                selectedDestination = it.selectedDestination,
                 isArticleOpen = false,
             )
         }

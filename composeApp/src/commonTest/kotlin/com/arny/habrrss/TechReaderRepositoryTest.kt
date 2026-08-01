@@ -1,7 +1,9 @@
 package com.arny.habrrss
 
 import com.arny.habrrss.data.database.InMemoryFeedDao
+import com.arny.habrrss.data.preferences.DefaultPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
+import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
@@ -65,6 +67,27 @@ class TechReaderRepositoryTest {
 
         assertEquals("New title", dao.getById("one")?.title)
         assertNotNull(dao.getById("stale"))
+    }
+
+    @Test
+    fun customFeedInputIsHabrHubSlug() = runTest {
+        val preferencesRepository = DefaultPreferencesRepository()
+        val customRssSource = GenericRssSource(emptyList())
+        val repository = TechReaderRepository(
+            primarySource = FakeFeedSource(),
+            feedDao = InMemoryFeedDao(),
+            customRssSource = customRssSource,
+            preferencesRepository = preferencesRepository,
+        )
+
+        repository.upsertCustomFeed(id = null, title = "", url = " android ")
+        val customFeed = repository.getFeeds(forceRefresh = true).first { it.id.startsWith("custom-hub-") }
+
+        assertEquals("android", customFeed.title)
+        assertEquals(
+            "https://habr.com/ru/rss/hub/android/?limit=100&with_hubs=true&with_tags=true",
+            customFeed.url,
+        )
     }
 
     @Test

@@ -189,10 +189,12 @@ class TechReaderRepository(
     }
 
     suspend fun upsertCustomFeed(id: String?, title: String, url: String) {
+        val hub = url.normalizedHubSlug()
+        val feedUrl = hub.toHabrHubRssUrl()
         val feed = CustomFeedPreference(
-            id = id ?: "custom-${url.normalizedFeedUrl().hashCode()}",
-            title = title.ifBlank { url },
-            url = url.normalizedFeedUrl(),
+            id = id ?: "custom-hub-${hub.hashCode()}",
+            title = title.ifBlank { hub },
+            url = feedUrl,
         )
         preferencesRepository?.upsertCustomFeed(feed)
         cachedFeeds = emptyList()
@@ -341,7 +343,17 @@ class TechReaderRepository(
         kind = FeedKind.Custom,
     )
 
-    private fun String.normalizedFeedUrl(): String = trim().replace("&amp;", "&")
+    private fun String.normalizedHubSlug(): String = trim()
+        .replace("&amp;", "&")
+        .trimEnd('/')
+        .substringAfterLast("/hub/", this)
+        .substringBefore('/')
+        .substringBefore('?')
+        .trim()
+        .lowercase()
+
+    private fun String.toHabrHubRssUrl(): String =
+        "https://habr.com/ru/rss/hub/$this/?limit=100&with_hubs=true&with_tags=true"
 
     private fun buildArticleContent(entity: FeedItemEntity): ArticleContent {
         val blocks = entity.descriptionHtml?.let { HtmlArticleParser.parse(it, entity.url) }

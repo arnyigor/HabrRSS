@@ -20,6 +20,10 @@ internal fun FeedScreen(
     isWide: Boolean,
     state: ReaderUiState,
     onFeedSelected: (String) -> Unit,
+    onSearchChanged: (String) -> Unit,
+    onHubSelected: (String?) -> Unit,
+    onTagSelected: (String?) -> Unit,
+    onClearFilters: () -> Unit,
     onArticleSelected: (String) -> Unit,
     onBookmark: (String) -> Unit,
     isRefreshing: Boolean,
@@ -30,6 +34,10 @@ internal fun FeedScreen(
         FeedFilterBar(
             state = state,
             onFeedSelected = onFeedSelected,
+            onSearchChanged = onSearchChanged,
+            onHubSelected = onHubSelected,
+            onTagSelected = onTagSelected,
+            onClearFilters = onClearFilters,
         )
         FeedBody(
             modifier = Modifier.fillMaxSize(),
@@ -52,6 +60,10 @@ private fun FeedScreenPreview() {
             isWide = false,
             state = previewFeedState(),
             onFeedSelected = {},
+            onSearchChanged = {},
+            onHubSelected = {},
+            onTagSelected = {},
+            onClearFilters = {},
             onArticleSelected = {},
             onBookmark = {},
             isRefreshing = false,

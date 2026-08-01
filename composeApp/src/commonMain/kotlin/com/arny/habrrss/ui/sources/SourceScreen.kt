@@ -41,7 +41,7 @@ internal fun SourceScreen(
 ) {
     var editingId by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
+    var hub by remember { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -54,10 +54,10 @@ internal fun SourceScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Свои RSS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Свои хабы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Вставьте прямую ссылку на RSS/Atom. Для Хабра удобно использовать URL вида: " +
-                            "https://habr.com/ru/rss/hub/android/?limit=100&with_hubs=true&with_tags=true",
+                        "Введите только slug хаба на Хабре, например: android, kotlin, machine_learning. " +
+                            "RSS-ссылка будет собрана автоматически.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     OutlinedTextField(
@@ -68,31 +68,31 @@ internal fun SourceScreen(
                         label = { Text("Название") },
                     )
                     OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
+                        value = hub,
+                        onValueChange = { hub = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("RSS URL") },
-                        placeholder = { Text("https://example.com/rss.xml") },
+                        label = { Text("Хаб") },
+                        placeholder = { Text("android") },
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            enabled = url.isNotBlank(),
+                            enabled = hub.isNotBlank(),
                             onClick = {
-                                onCustomFeedSaved(editingId, title, url)
+                                onCustomFeedSaved(editingId, title, hub)
                                 editingId = null
                                 title = ""
-                                url = ""
+                                hub = ""
                             },
                         ) {
-                            Text(if (editingId == null) "Добавить RSS" else "Сохранить")
+                            Text(if (editingId == null) "Добавить хаб" else "Сохранить")
                         }
                         if (editingId != null) {
                             OutlinedButton(
                                 onClick = {
                                     editingId = null
                                     title = ""
-                                    url = ""
+                                    hub = ""
                                 },
                             ) {
                                 Text("Отмена")
@@ -128,7 +128,7 @@ internal fun SourceScreen(
                                 onClick = {
                                     editingId = feed.id
                                     title = feed.title
-                                    url = feed.url
+                                    hub = feed.url.toHubSlug()
                                 },
                             ) {
                                 Text("Изменить")
@@ -143,3 +143,10 @@ internal fun SourceScreen(
         }
     }
 }
+
+private fun String.toHubSlug(): String = trim()
+    .trimEnd('/')
+    .substringAfterLast("/hub/", this)
+    .substringBefore('/')
+    .substringBefore('?')
+    .trim()

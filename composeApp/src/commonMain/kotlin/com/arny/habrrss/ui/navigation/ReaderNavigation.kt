@@ -9,7 +9,6 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,7 +36,6 @@ private val bottomNavItems = listOf(
     Triple(Screen.Feed, "Лента", Icons.AutoMirrored.Filled.Article),
     Triple(Screen.Sources, "RSS", Icons.Filled.RssFeed),
     Triple(Screen.Bookmarks, "Сохр.", Icons.Filled.Bookmark),
-    Triple(Screen.Search, "Поиск", Icons.Filled.Search),
     Triple(Screen.Settings, "Ещё", Icons.Filled.Settings),
 )
 
