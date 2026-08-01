@@ -115,6 +115,10 @@ internal fun ReaderApp(
                 viewModel.dispatch(FeedIntent.SelectHub(hubId))
                 navigateToFeed()
             },
+            onHubFeedRequested = { slug, title ->
+                viewModel.dispatch(FeedIntent.OpenHubFeed(slug, title))
+                navigateToFeed()
+            },
             onTagSelected = { tagId ->
                 viewModel.dispatch(FeedIntent.SelectTag(tagId))
                 navigateToFeed()
@@ -154,6 +158,7 @@ internal fun ReaderAppContent(
     onTopLevelSelected: (Screen) -> Unit,
     onCloseArticle: () -> Unit,
     onHubSelected: (String?) -> Unit,
+    onHubFeedRequested: (String, String) -> Unit,
     onTagSelected: (String?) -> Unit,
     onFavoriteHubToggled: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
@@ -176,6 +181,7 @@ internal fun ReaderAppContent(
                 onTopLevelSelected = onTopLevelSelected,
                 onCloseArticle = onCloseArticle,
                 onHubSelected = onHubSelected,
+                onHubFeedRequested = onHubFeedRequested,
                 onTagSelected = onTagSelected,
                 onFavoriteHubToggled = onFavoriteHubToggled,
                 onFavoriteTagToggled = onFavoriteTagToggled,
@@ -212,6 +218,7 @@ private fun ReaderWideLayout(
     onTopLevelSelected: (Screen) -> Unit,
     onCloseArticle: () -> Unit,
     onHubSelected: (String?) -> Unit,
+    onHubFeedRequested: (String, String) -> Unit,
     onTagSelected: (String?) -> Unit,
     onFavoriteHubToggled: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
@@ -245,7 +252,8 @@ private fun ReaderWideLayout(
                     favoriteTagIds = state.favoriteTagIds,
                     favoriteHubIds = state.favoriteHubIds,
                     onBack = onCloseArticle,
-                    onHubSelected = onHubSelected,
+                    onHubSelected = { hubId -> onHubSelected(hubId) },
+                    onHubFeedRequested = onHubFeedRequested,
                     onFavoriteHubToggled = onFavoriteHubToggled,
                     onTagSelected = onTagSelected,
                     onFavoriteTagToggled = onFavoriteTagToggled,
@@ -520,6 +528,10 @@ private fun ArticleRoute(
                 viewModel.dispatch(FeedIntent.SelectHub(hubId))
                 navigateToFeed()
             },
+            onHubFeedRequested = { slug, title ->
+                viewModel.dispatch(FeedIntent.OpenHubFeed(slug, title))
+                navigateToFeed()
+            },
             onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
             onTagSelected = { tagId ->
                 viewModel.dispatch(FeedIntent.SelectTag(tagId))
@@ -555,6 +567,7 @@ private fun ReaderAppContentPreview() {
             onTopLevelSelected = {},
             onCloseArticle = {},
             onHubSelected = {},
+            onHubFeedRequested = { _, _ -> },
             onTagSelected = {},
             onFavoriteHubToggled = {},
             onFavoriteTagToggled = {},

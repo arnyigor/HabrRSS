@@ -3,6 +3,7 @@ package com.arny.habrrss.data.article
 import com.arny.habrrss.data.rss.HtmlArticleParser
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import com.fleeksoft.ksoup.Ksoup
@@ -38,7 +39,7 @@ class HabrArticleContentExtractor {
             author = null,
             publishedAt = null,
             tags = emptyList(),
-            hubs = emptyList(),
+            hubs = doc.extractHubs(),
             blocks = blocks,
             sourceNotice = "Полная статья загружена с Habr.",
         )
@@ -57,6 +58,23 @@ class HabrArticleContentExtractor {
         select("script, style, noscript, svg, iframe").remove()
         select("a[href*=#habracut]").remove()
         select(".tm-article-presenter__footer, .tm-article-sticky-panel").remove()
+    }
+
+    private fun Element.extractHubs(): List<Hub> {
+        val hubRegex = Regex("""/(?:[a-z]{2}/)?hubs/([^/?#]+)/?""")
+        return select("a[href*=hubs]")
+            .mapNotNull { link ->
+                val href = link.attr("href").trim()
+                val slug = hubRegex.find(href)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                val title = link.text().trim().takeIf { it.isNotBlank() } ?: slug
+                Hub(
+                    id = title.stableMetadataId(prefix = "hub"),
+                    title = title,
+                    slug = slug,
+                )
+            }
+            .distinctBy { it.slug ?: it.id }
     }
 
     private fun Element.imageUrl(baseUrl: String): String? {
@@ -83,6 +101,14 @@ class HabrArticleContentExtractor {
             }
             else -> this
         }
+    }
+
+    private fun String.stableMetadataId(prefix: String): String {
+        val normalized = replace('\u00A0', ' ')
+            .trim()
+            .replace(Regex("\\s+"), " ")
+            .lowercase()
+        return "$prefix-${normalized.hashCode()}"
     }
 
     private fun ArticleBlock.blockTextLength(): Int {

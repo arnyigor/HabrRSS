@@ -357,11 +357,28 @@ class TechReaderRepository(
                     blocks = fullArticle.blocks,
                     sourceNotice = fullArticle.sourceNotice,
                     author = fallback.author ?: fullArticle.author,
+                    hubs = fallback.hubs.mergeHubSlugs(fullArticle.hubs),
+                    tags = fallback.tags.ifEmpty { fullArticle.tags },
                 )
                 feedDao.update(entity.copy(cachedArticleJson = json.encodeToString(merged)))
                 merged
             }
             else -> fallback
+        }
+    }
+
+    private fun List<Hub>.mergeHubSlugs(hubsWithSlugs: List<Hub>): List<Hub> {
+        if (hubsWithSlugs.isEmpty()) return this
+        if (isEmpty()) return hubsWithSlugs
+        val byId = hubsWithSlugs.associateBy { it.id }
+        val byTitle = hubsWithSlugs.associateBy { it.title.lowercase() }
+        return map { hub ->
+            val withSlug = byId[hub.id] ?: byTitle[hub.title.lowercase()]
+            if (hub.slug.isNullOrBlank() && !withSlug?.slug.isNullOrBlank()) {
+                hub.copy(slug = withSlug.slug)
+            } else {
+                hub
+            }
         }
     }
 

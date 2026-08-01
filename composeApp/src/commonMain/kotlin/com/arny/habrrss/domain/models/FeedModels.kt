@@ -126,6 +126,7 @@ data class Tag(
 data class Hub(
     val id: String,
     val title: String,
+    val slug: String? = null,
 )
 
 @Serializable

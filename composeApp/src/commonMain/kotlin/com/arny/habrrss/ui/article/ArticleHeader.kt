@@ -17,16 +17,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleContent
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.presentation.feed.estimatedReadingMinutes
 import com.arny.habrrss.ui.components.humanReadableDate
 
@@ -38,10 +44,46 @@ internal fun ArticleHeader(
     favoriteHubIds: Set<String>,
     onBack: () -> Unit,
     onHubSelected: (String) -> Unit,
+    onHubFeedRequested: (String, String) -> Unit,
     onFavoriteHubToggled: (String) -> Unit,
     onTagSelected: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
 ) {
+    var pendingHub by remember { mutableStateOf<Hub?>(null) }
+
+    pendingHub?.let { hub ->
+        AlertDialog(
+            onDismissRequest = { pendingHub = null },
+            title = { Text("Открыть хаб ${hub.title}?") },
+            text = {
+                Text(
+                    "Для этого хаба найден RSS slug: ${hub.slug}. " +
+                        "Можно создать/открыть отдельный RSS-поток или просто отфильтровать текущую ленту.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingHub = null
+                        onHubFeedRequested(hub.slug.orEmpty(), hub.title)
+                    },
+                ) {
+                    Text("RSS-поток")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingHub = null
+                        onHubSelected(hub.id)
+                    },
+                ) {
+                    Text("Фильтр")
+                }
+            },
+        )
+    }
+
     Column(Modifier.widthIn(max = 860.dp)) {
         if (showBack) {
             TextButton(onClick = onBack) {
@@ -105,7 +147,13 @@ internal fun ArticleHeader(
                 HubArticleChip(
                     hub = hub,
                     favorite = favoriteHubIds.contains(hub.id),
-                    onClick = { onHubSelected(hub.id) },
+                    onClick = {
+                        if (hub.slug.isNullOrBlank()) {
+                            onHubSelected(hub.id)
+                        } else {
+                            pendingHub = hub
+                        }
+                    },
                     onFavoriteClick = { onFavoriteHubToggled(hub.id) },
                 )
             }

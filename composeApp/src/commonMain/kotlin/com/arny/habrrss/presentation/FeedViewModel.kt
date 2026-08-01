@@ -12,6 +12,7 @@ import app.cash.paging.PagingSourceLoadResultPage
 import app.cash.paging.cachedIn
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
+import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.FeedKind
@@ -46,6 +47,7 @@ sealed interface FeedIntent {
     data class SaveCustomFeed(val id: String?, val title: String, val url: String) : FeedIntent
     data class RemoveCustomFeed(val id: String) : FeedIntent
     data class OpenArticleUrl(val url: String) : FeedIntent
+    data class OpenHubFeed(val slug: String, val title: String) : FeedIntent
     data class ToggleArticleBookmark(val articleId: String) : FeedIntent
 }
 
@@ -102,6 +104,7 @@ class FeedViewModel(
             is FeedIntent.SaveCustomFeed -> saveCustomFeed(intent.id, intent.title, intent.url)
             is FeedIntent.RemoveCustomFeed -> removeCustomFeed(intent.id)
             is FeedIntent.OpenArticleUrl -> openArticleUrl(intent.url)
+            is FeedIntent.OpenHubFeed -> openHubFeed(intent.slug, intent.title)
             is FeedIntent.ToggleArticleBookmark -> toggleArticleBookmark(intent.articleId)
         }
     }
@@ -442,6 +445,38 @@ class FeedViewModel(
         }
     }
 
+    fun openHubFeed(slug: String, title: String) {
+        val normalizedSlug = slug.toHubSlug().takeIf { it.isNotBlank() } ?: return
+        viewModelScope.launch {
+            runLoading {
+                repository.upsertCustomFeed(id = null, title = title, url = normalizedSlug)
+                val feeds = repository.getFeeds(forceRefresh = true)
+                val feed = feeds.findHubFeed(normalizedSlug) ?: return@runLoading
+                observeFeed(feed.id)
+                resetPager(feed.id)
+                updateState {
+                    it.copy(
+                        feeds = feeds,
+                        activeFeedId = feed.id,
+                        selectedArticleId = null,
+                        selectedArticleBookmarked = false,
+                        article = null,
+                        isArticleOpen = false,
+                        selectedHubId = null,
+                        selectedTagId = null,
+                        searchQuery = "",
+                        selectedPublicationSection = HabrPublicationSection.Articles,
+                        selectedDestination = ReaderDestination.Feed,
+                        canLoadMore = repository.hasMorePages(feed.id),
+                        errorMessage = null,
+                    )
+                }
+                repository.refreshFeed(feed.id)
+                updateState { it.copy(canLoadMore = repository.hasMorePages(feed.id), errorMessage = null) }
+            }
+        }
+    }
+
     fun toggleArticleBookmark(articleId: String) {
         viewModelScope.launch {
             repository.toggleBookmark(articleId)
@@ -540,3 +575,17 @@ class FeedViewModel(
         private const val FIRST_APPEND_PAGE = 1
     }
 }
+
+private fun List<FeedDescriptor>.findHubFeed(slug: String): FeedDescriptor? = firstOrNull { feed ->
+    feed.kind == FeedKind.Custom && feed.url.toHubSlug() == slug
+}
+
+private fun String.toHubSlug(): String = trim()
+    .replace("&amp;", "&")
+    .trimEnd('/')
+    .substringAfterLast("/hub/", this)
+    .substringBefore('/')
+    .substringBefore('?')
+    .trim()
+    .replace(Regex("\\s+"), "_")
+    .lowercase()
