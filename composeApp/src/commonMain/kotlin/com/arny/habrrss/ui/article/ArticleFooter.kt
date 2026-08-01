@@ -18,18 +18,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedSettings
-import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.ui.components.humanReadableDate
 
 @Composable
@@ -43,15 +40,14 @@ internal fun ArticleFooterSections(
 ) {
     val actions = rememberArticleActions()
     val validUrl = article.url.normalizedExternalUrl()
-    val visibleComments = remember(comments) { comments.filter { it.hasVisibleContent() } }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        if (visibleComments.isNotEmpty()) {
+        if (comments.isNotEmpty()) {
             HorizontalDivider()
             CommentsSection(
-                comments = visibleComments,
+                comments = comments,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else if (isLoadingExtras) {
@@ -109,8 +105,6 @@ private fun CommentItem(
     depth: Int,
 ) {
     val actions = rememberArticleActions()
-    val visibleBody = remember(comment.body) { comment.body.filter { it.hasVisibleContent() } }
-    val visibleChildren = remember(comment.children) { comment.children.filter { it.hasVisibleContent() } }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -136,7 +130,7 @@ private fun CommentItem(
                 }
             }
         }
-        visibleBody.forEach { block ->
+        comment.body.forEach { block ->
             ArticleBlockView(
                 block = block,
                 settings = settings,
@@ -144,42 +138,17 @@ private fun CommentItem(
                 onLinkClick = { url -> actions.openUrl(url) },
             )
         }
-        visibleChildren.forEach { child ->
+        comment.children.forEach { child ->
             CommentItem(
                 comment = child,
                 settings = settings,
                 depth = depth + 1,
             )
         }
-        if (depth == 0 && visibleChildren.isNotEmpty()) {
+        if (depth == 0 && comment.children.isNotEmpty()) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
         }
     }
-}
-
-private fun CommentNode.hasVisibleContent(): Boolean =
-    body.any { it.hasVisibleContent() } || children.any { it.hasVisibleContent() }
-
-private fun ArticleBlock.hasVisibleContent(): Boolean = when (this) {
-    is ArticleBlock.CodeBlock -> code.isNotBlank()
-    is ArticleBlock.Heading -> inline.hasVisibleContent()
-    is ArticleBlock.Image -> url.isNotBlank() || !alt.isNullOrBlank()
-    is ArticleBlock.ListBlock -> items.any { item -> item.any { it.hasVisibleContent() } }
-    is ArticleBlock.Paragraph -> inline.hasVisibleContent()
-    is ArticleBlock.Quote -> blocks.any { it.hasVisibleContent() }
-    is ArticleBlock.Spoiler -> title.isNotBlank() || blocks.any { it.hasVisibleContent() }
-    is ArticleBlock.TableBlock -> rows.any { row -> row.any { cell -> cell.any { it.hasVisibleContent() } } }
-    is ArticleBlock.UnknownHtml -> html.isNotBlank()
-}
-
-private fun List<InlineNode>.hasVisibleContent(): Boolean = any { it.hasVisibleContent() }
-
-private fun InlineNode.hasVisibleContent(): Boolean = when (this) {
-    is InlineNode.Bold -> children.hasVisibleContent()
-    is InlineNode.Code -> value.isNotBlank()
-    is InlineNode.Italic -> children.hasVisibleContent()
-    is InlineNode.Link -> text.isNotBlank()
-    is InlineNode.Text -> value.isNotBlank()
 }
 
 @Composable
