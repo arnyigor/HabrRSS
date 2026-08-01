@@ -27,6 +27,7 @@ import kotlin.time.Clock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -126,7 +127,7 @@ class TechReaderRepository(
         feedDao.getFavoriteArticles(),
     ) { entities, localStates, favorites ->
         entities.map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
-    }
+    }.distinctUntilChanged()
 
     fun observeBookmarks(): Flow<List<FeedItem>> = combine(
         feedDao.getBookmarks(),
@@ -134,7 +135,7 @@ class TechReaderRepository(
         feedDao.getFavoriteArticles(),
     ) { entities, localStates, favorites ->
         entities.map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
-    }
+    }.distinctUntilChanged()
 
     fun observeArticleItem(articleId: String): Flow<FeedItem?> = combine(
         feedDao.observeById(articleId),
@@ -142,7 +143,7 @@ class TechReaderRepository(
         feedDao.getFavoriteArticles(),
     ) { entity, localStates, favorites ->
         entity?.toDomain(json, localStates.byArticleId(), favorites.articleIds())
-    }
+    }.distinctUntilChanged()
 
     suspend fun getCachedFeed(feedId: String): List<FeedItem> {
         val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()

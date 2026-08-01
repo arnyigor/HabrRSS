@@ -3,7 +3,6 @@ package com.arny.habrrss.ui.feed
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,12 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -179,7 +176,6 @@ private fun FeedCardAuthorLine(item: FeedItem) {
 @Composable
 private fun FeedMetaLine(item: FeedItem) {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -229,19 +225,27 @@ private fun MetadataRow(
     tags: List<Tag>,
 ) {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        hubs.forEach { CompactChip(it.title) }
-        tags.forEach { CompactChip("#${it.title}") }
+        (hubs.take(2).map { it.title } + tags.take(3).map { "#${it.title}" })
+            .take(4)
+            .forEach { CompactChip(it) }
     }
 }
 
 @Composable
 private fun CompactChip(label: String) {
-    AssistChip(
-        onClick = {},
+    Surface(
         modifier = Modifier.widthIn(max = 180.dp),
-        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-    )
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

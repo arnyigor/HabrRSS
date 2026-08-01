@@ -81,6 +81,18 @@ data class ReaderUiState(
     val selectedFeedTitle: String
         get() = feeds.firstOrNull { it.id == activeFeedId }?.title ?: "Лента"
 
+    val feedListStateKey: String
+        get() = listOf(
+            selectedDestination.name,
+            activeFeedId.orEmpty(),
+            selectedPublicationSection.name,
+            selectedHubId.orEmpty(),
+            selectedTagId.orEmpty(),
+            searchQuery,
+            showUnreadOnly.toString(),
+            feedSortMode.name,
+        ).joinToString("|")
+
     val unreadCount: Int
         get() = items.count { !it.isRead }
 

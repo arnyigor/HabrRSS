@@ -45,7 +45,8 @@ class ArticleViewModel(
     }
 
     fun openArticle(articleId: String) {
-        if (mutableState.value.articleId == articleId && mutableState.value.article != null) return
+        val current = mutableState.value
+        if (current.articleId == articleId && (current.article != null || current.isLoading)) return
         observeBookmark(articleId)
         articleJob?.cancel()
         articleJob = viewModelScope.launch {

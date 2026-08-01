@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.Flow
 interface FeedDao {
     // ---------- Server/cache data ----------
 
-    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, 0) DESC")
+    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     fun getByFeed(feedId: String): Flow<List<FeedItemEntity>>
 
-    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, 0) DESC")
+    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity>
 
     @Query("SELECT * FROM feed_items WHERE id = :id")
@@ -26,7 +26,7 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items WHERE url = :url OR rtrim(url, '/') = rtrim(:url, '/') LIMIT 1")
     suspend fun getByUrl(url: String): FeedItemEntity?
 
-    @Query("SELECT * FROM feed_items WHERE title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%' OR descriptionHtml LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%' OR tagsJson LIKE '%' || :query || '%' OR hubsJson LIKE '%' || :query || '%' ORDER BY COALESCE(publishedAtEpoch, 0) DESC")
+    @Query("SELECT * FROM feed_items WHERE title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%' OR descriptionHtml LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%' OR tagsJson LIKE '%' || :query || '%' OR hubsJson LIKE '%' || :query || '%' ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun search(query: String): List<FeedItemEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -68,10 +68,10 @@ interface FeedDao {
     @Query("DELETE FROM favorite_articles WHERE articleId = :articleId")
     suspend fun deleteFavoriteArticle(articleId: String)
 
-    @Query("SELECT feed_items.* FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, 0) DESC")
+    @Query("SELECT feed_items.* FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, feed_items.fetchedAt) DESC")
     fun getBookmarks(): Flow<List<FeedItemEntity>>
 
-    @Query("SELECT feed_items.* FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, 0) DESC")
+    @Query("SELECT feed_items.* FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, feed_items.fetchedAt) DESC")
     suspend fun getBookmarksOnce(): List<FeedItemEntity>
 
     @Query("SELECT * FROM favorite_tags")

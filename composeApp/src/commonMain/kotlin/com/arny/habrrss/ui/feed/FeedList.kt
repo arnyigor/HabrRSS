@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -39,6 +40,8 @@ import com.arny.habrrss.presentation.ReaderUiState
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import com.arny.habrrss.ui.components.EmptyState
 import com.arny.habrrss.ui.components.RefreshBox
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 
 @Composable
 internal fun FeedBody(
@@ -72,6 +75,7 @@ internal fun FeedBody(
             onBookmark = onBookmark,
             onClearFilters = onClearFilters,
             canLoadMore = state.canLoadMore,
+            listStateKey = state.feedListStateKey,
             onLoadMore = onLoadMore,
         )
     }
@@ -147,24 +151,31 @@ internal fun FeedList(
     onBookmark: (String) -> Unit,
     onClearFilters: () -> Unit,
     canLoadMore: Boolean = false,
+    listStateKey: String = "feed",
     onLoadMore: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
+    var previousListStateKey by rememberSaveable { mutableStateOf(listStateKey) }
 
-    LaunchedEffect(items.firstOrNull()?.id) {
-        if (items.isNotEmpty()) listState.scrollToItem(0)
+    LaunchedEffect(listStateKey) {
+        if (previousListStateKey != listStateKey) {
+            listState.scrollToItem(0)
+            previousListStateKey = listStateKey
+        }
     }
 
-    // Load more when reaching end of list
+    // Load more when reaching end of list. Keep it distinct to avoid repeated calls while
+    // LazyColumn is remeasuring the same tail items.
     LaunchedEffect(listState, canLoadMore) {
         if (!canLoadMore) return@LaunchedEffect
         snapshotFlow {
             val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
             val totalItems = listState.layoutInfo.totalItemsCount
             lastVisibleItem != null && lastVisibleItem.index >= totalItems - 4
-        }.collect { shouldLoad ->
-            if (shouldLoad) onLoadMore()
         }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { onLoadMore() }
     }
 
     RefreshBox(
@@ -187,7 +198,11 @@ internal fun FeedList(
                     )
                 }
             }
-            items(items = items, key = { it.id }) { item ->
+            items(
+                items = items,
+                key = { it.id },
+                contentType = { "feed_item" },
+            ) { item ->
                 FeedCard(
                     item = item,
                     selected = item.id == selectedArticleId,
@@ -199,7 +214,7 @@ internal fun FeedList(
 
             // Loading indicator at the bottom when loading more
             if (canLoadMore) {
-                item {
+                item(key = "load_more", contentType = "load_more") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
