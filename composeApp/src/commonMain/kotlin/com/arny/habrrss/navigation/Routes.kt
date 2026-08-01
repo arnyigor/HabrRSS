@@ -1,5 +1,6 @@
 package com.arny.habrrss.navigation
 
+import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 /**
@@ -7,7 +8,7 @@ import kotlinx.serialization.Serializable
  * Uses kotlinx.serialization for deep linking support.
  */
 @Serializable
-sealed class Screen {
+sealed class Screen : NavKey {
     @Serializable
     data object Feed : Screen()
 

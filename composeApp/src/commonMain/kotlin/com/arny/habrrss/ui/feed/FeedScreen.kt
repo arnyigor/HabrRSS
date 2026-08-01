@@ -8,7 +8,6 @@ import com.arny.habrrss.presentation.FeedCardMode
 import com.arny.habrrss.presentation.FeedSortMode
 import com.arny.habrrss.presentation.ReaderUiState
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
-import com.arny.habrrss.ui.article.ArticleScreen
 
 @Composable
 internal fun FeedScreen(
@@ -18,7 +17,6 @@ internal fun FeedScreen(
     onPublicationSectionSelected: (HabrPublicationSection) -> Unit,
     onArticleSelected: (String) -> Unit,
     onBookmark: (String) -> Unit,
-    onBack: () -> Unit,
     onHubSelected: (String?) -> Unit,
     onFavoriteHubToggled: (String) -> Unit,
     onTagSelected: (String?) -> Unit,
@@ -31,48 +29,30 @@ internal fun FeedScreen(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
 ) {
-    if (!isWide && state.isArticleOpen) {
-        ArticleScreen(
-            modifier = Modifier.fillMaxSize(),
-            article = state.article,
-            showBack = true,
-            settings = state.settings,
-            favoriteTagIds = state.favoriteTagIds,
-            favoriteHubIds = state.favoriteHubIds,
-            onBack = onBack,
-            onHubSelected = { onHubSelected(it) },
-            onFavoriteHubToggled = onFavoriteHubToggled,
-            onTagSelected = { onTagSelected(it) },
-            onFavoriteTagToggled = onFavoriteTagToggled,
-            isBookmarked = state.selectedArticleBookmarked,
-            onBookmark = { state.selectedArticleId?.let(onBookmark) },
+    Column(Modifier.fillMaxSize()) {
+        FeedFilterBar(
+            isWide = isWide,
+            state = state,
+            onFeedSelected = onFeedSelected,
+            onPublicationSectionSelected = onPublicationSectionSelected,
+            onHubSelected = onHubSelected,
+            onTagSelected = onTagSelected,
+            onClearFilters = onClearFilters,
+            onUnreadOnlyChanged = onUnreadOnlyChanged,
+            onCardModeChanged = onCardModeChanged,
+            onSortModeChanged = onSortModeChanged,
         )
-    } else {
-        Column(Modifier.fillMaxSize()) {
-            FeedFilterBar(
-                isWide = isWide,
-                state = state,
-                onFeedSelected = onFeedSelected,
-                onPublicationSectionSelected = onPublicationSectionSelected,
-                onHubSelected = onHubSelected,
-                onTagSelected = onTagSelected,
-                onClearFilters = onClearFilters,
-                onUnreadOnlyChanged = onUnreadOnlyChanged,
-                onCardModeChanged = onCardModeChanged,
-                onSortModeChanged = onSortModeChanged,
-            )
-            FeedBody(
-                modifier = Modifier.fillMaxSize(),
-                state = state,
-                selectedArticleId = state.selectedArticleId,
-                isRefreshing = isRefreshing,
-                onRefresh = onRefresh,
-                onArticleSelected = onArticleSelected,
-                onBookmark = onBookmark,
-                onClearFilters = onClearFilters,
-                onHubSelected = onHubSelected,
-                onLoadMore = onLoadMore,
-            )
-        }
+        FeedBody(
+            modifier = Modifier.fillMaxSize(),
+            state = state,
+            selectedArticleId = state.selectedArticleId,
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            onArticleSelected = onArticleSelected,
+            onBookmark = onBookmark,
+            onClearFilters = onClearFilters,
+            onHubSelected = onHubSelected,
+            onLoadMore = onLoadMore,
+        )
     }
 }

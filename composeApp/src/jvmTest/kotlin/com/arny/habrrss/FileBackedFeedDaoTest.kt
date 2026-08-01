@@ -1,12 +1,12 @@
 package com.arny.habrrss
 
+import com.arny.habrrss.data.database.FavoriteArticleEntity
 import com.arny.habrrss.data.database.FeedItemEntity
 import com.arny.habrrss.data.database.FileBackedFeedDao
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class FileBackedFeedDaoTest {
     @Test
@@ -38,13 +38,14 @@ class FileBackedFeedDaoTest {
                 ),
             ),
         )
-        firstDao.updateBookmark("article", true)
+        firstDao.insertFavoriteArticle(FavoriteArticleEntity(articleId = "article", createdAt = 1L))
 
         val secondDao = FileBackedFeedDao(file)
         val cached = secondDao.getByFeedOnce("feed").single()
+        val bookmark = secondDao.getBookmarksOnce().single()
 
         assertEquals("Cached article", cached.title)
         assertEquals("""{"id":"article"}""", cached.cachedArticleJson)
-        assertTrue(cached.isBookmarked)
+        assertEquals("article", bookmark.id)
     }
 }

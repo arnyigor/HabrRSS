@@ -4,8 +4,14 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [FeedItemEntity::class],
-    version = 2,
+    entities = [
+        FeedItemEntity::class,
+        ArticleLocalStateEntity::class,
+        FavoriteArticleEntity::class,
+        FavoriteTagEntity::class,
+        FavoriteHubEntity::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

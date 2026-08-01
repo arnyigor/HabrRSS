@@ -1,126 +1,497 @@
 package com.arny.habrrss.presentation
 
-import com.arny.habrrss.domain.models.FeedSettings
-import com.arny.habrrss.presentation.feed.HabrPublicationSection
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.cash.paging.Pager
+import app.cash.paging.PagingConfig
+import app.cash.paging.PagingData
+import app.cash.paging.PagingSourceLoadParamsAppend
+import app.cash.paging.PagingSourceLoadResultError
+import app.cash.paging.PagingSourceLoadResultInvalid
+import app.cash.paging.PagingSourceLoadResultPage
+import app.cash.paging.cachedIn
+import com.arny.habrrss.data.preferences.UserPreferencesRepository
+import com.arny.habrrss.data.repository.TechReaderRepository
+import com.arny.habrrss.domain.models.FeedItem
+import com.arny.habrrss.domain.models.FeedSettings
+import com.arny.habrrss.domain.models.FeedKind
+import com.arny.habrrss.presentation.feed.HabrPublicationSection
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+sealed interface FeedIntent {
+    data object Refresh : FeedIntent
+    data object LoadMore : FeedIntent
+    data class SelectFeed(val feedId: String) : FeedIntent
+    data class SelectDestination(val destination: ReaderDestination) : FeedIntent
+    data class SelectArticle(val articleId: String) : FeedIntent
+    data object CloseArticle : FeedIntent
+    data class SelectHub(val hubId: String?) : FeedIntent
+    data class SelectTag(val tagId: String?) : FeedIntent
+    data class ToggleFavoriteTag(val tagId: String) : FeedIntent
+    data class ToggleFavoriteHub(val hubId: String) : FeedIntent
+    data class SelectPublicationSection(val section: HabrPublicationSection) : FeedIntent
+    data class UpdateSearchQuery(val query: String) : FeedIntent
+    data object ClearFilters : FeedIntent
+    data class SetShowUnreadOnly(val showUnreadOnly: Boolean) : FeedIntent
+    data class SetFeedCardMode(val mode: FeedCardMode) : FeedIntent
+    data class SetFeedSortMode(val mode: FeedSortMode) : FeedIntent
+    data class ToggleArticleBookmark(val articleId: String) : FeedIntent
+}
 
 class FeedViewModel(
-    private val interactor: ReaderInteractor,
+    private val repository: TechReaderRepository,
+    private val preferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
-    val state: StateFlow<ReaderUiState> = interactor.state
+    private val mutableState = MutableStateFlow(ReaderUiState())
+    val state: StateFlow<ReaderUiState> = mutableState
+
+    private var feedJob: Job? = null
+    private var localStateJob: Job? = null
+    private var isLoadingNextPage = false
+    private var pagingSource: FeedPagingSource? = null
+    private var nextPagingKey: Int? = FIRST_APPEND_PAGE
+
+    private val pagingConfig = PagingConfig(
+        pageSize = PAGE_SIZE,
+        prefetchDistance = PAGE_PREFETCH_DISTANCE,
+        enablePlaceholders = false,
+    )
+    private var pagingFlow: Flow<PagingData<FeedItem>>? = null
 
     init {
-        viewModelScope.launch {
-            interactor.start()
+        viewModelScope.launch { start() }
+    }
+
+    fun dispatch(intent: FeedIntent) {
+        when (intent) {
+            FeedIntent.Refresh -> refresh()
+            FeedIntent.LoadMore -> loadMoreItems()
+            is FeedIntent.SelectFeed -> selectFeed(intent.feedId)
+            is FeedIntent.SelectDestination -> selectDestination(intent.destination)
+            is FeedIntent.SelectArticle -> selectArticle(intent.articleId)
+            FeedIntent.CloseArticle -> closeArticle()
+            is FeedIntent.SelectHub -> selectHub(intent.hubId)
+            is FeedIntent.SelectTag -> selectTag(intent.tagId)
+            is FeedIntent.ToggleFavoriteTag -> toggleFavoriteTag(intent.tagId)
+            is FeedIntent.ToggleFavoriteHub -> toggleFavoriteHub(intent.hubId)
+            is FeedIntent.SelectPublicationSection -> selectPublicationSection(intent.section)
+            is FeedIntent.UpdateSearchQuery -> updateSearchQuery(intent.query)
+            FeedIntent.ClearFilters -> clearFilters()
+            is FeedIntent.SetShowUnreadOnly -> setShowUnreadOnly(intent.showUnreadOnly)
+            is FeedIntent.SetFeedCardMode -> setFeedCardMode(intent.mode)
+            is FeedIntent.SetFeedSortMode -> setFeedSortMode(intent.mode)
+            is FeedIntent.ToggleArticleBookmark -> toggleArticleBookmark(intent.articleId)
         }
     }
 
+    private suspend fun start() {
+        val settings = preferencesRepository.preferences().first()
+        migrateFavoriteMetadataFromPreferences()
+        val feeds = repository.getFeeds()
+        val activeFeedId = feeds.firstOrNull()?.id ?: repository.requireFirstFeedId()
+        updateState {
+            it.copy(
+                settings = settings,
+                feeds = feeds,
+                activeFeedId = activeFeedId,
+                selectedPublicationSection = feeds.firstOrNull { feed -> feed.id == activeFeedId }
+                    ?.kind
+                    ?.toPublicationSection()
+                    ?: HabrPublicationSection.Articles,
+                favoriteHubIds = repository.getFavoriteHubIds(),
+                favoriteTagIds = repository.getFavoriteTagIds(),
+            )
+        }
+        observeFeed(activeFeedId)
+        observeLocalFavorites()
+        resetPager(activeFeedId)
+        refresh()
+    }
+
+    private suspend fun migrateFavoriteMetadataFromPreferences() {
+        val currentHubIds = repository.getFavoriteHubIds()
+        val currentTagIds = repository.getFavoriteTagIds()
+        preferencesRepository.favoriteHubIds().first()
+            .filterNot { it in currentHubIds }
+            .forEach { repository.toggleFavoriteHub(it) }
+        preferencesRepository.favoriteTagIds().first()
+            .filterNot { it in currentTagIds }
+            .forEach { repository.toggleFavoriteTag(it) }
+    }
+
+    private fun observeFeed(feedId: String) {
+        feedJob?.cancel()
+        feedJob = viewModelScope.launch {
+            repository.observeFeed(feedId).collect { items ->
+                updateState { state ->
+                    val selected = state.selectedArticleId
+                    state.copy(
+                        items = items,
+                        selectedArticleBookmarked = items.firstOrNull { it.id == selected }?.isBookmarked
+                            ?: state.selectedArticleBookmarked,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun observeLocalFavorites() {
+        if (localStateJob != null) return
+        localStateJob = viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                repository.observeFavoriteHubIds(),
+                repository.observeFavoriteTagIds(),
+            ) { hubIds, tagIds -> hubIds to tagIds }
+                .collect { (hubIds, tagIds) ->
+                    updateState { it.copy(favoriteHubIds = hubIds, favoriteTagIds = tagIds) }
+                }
+        }
+    }
+
+    private fun resetPager(feedId: String) {
+        pagingSource = FeedPagingSource(repository = repository, feedId = feedId)
+        nextPagingKey = FIRST_APPEND_PAGE
+        pagingFlow = Pager(config = pagingConfig) {
+            FeedPagingSource(repository = repository, feedId = feedId)
+        }.flow.cachedIn(viewModelScope)
+    }
+
     fun refresh() {
+        val feedId = mutableState.value.activeFeedId ?: return
         viewModelScope.launch {
-            interactor.refresh()
+            runLoading {
+                repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
+                repository.refreshFeed(feedId)
+                updateState { it.copy(canLoadMore = repository.hasMorePages(feedId), errorMessage = null) }
+            }
         }
     }
 
     fun selectFeed(feedId: String) {
         viewModelScope.launch {
-            interactor.selectFeed(feedId)
+            observeFeed(feedId)
+            resetPager(feedId)
+            updateState { state ->
+                state.copy(
+                    activeFeedId = feedId,
+                    selectedArticleId = null,
+                    selectedArticleBookmarked = false,
+                    article = null,
+                    isArticleOpen = false,
+                    selectedHubId = null,
+                    selectedTagId = null,
+                    searchQuery = "",
+                    selectedPublicationSection = state.feeds.firstOrNull { feed -> feed.id == feedId }
+                        ?.kind
+                        ?.toPublicationSection()
+                        ?: HabrPublicationSection.Articles,
+                    selectedDestination = ReaderDestination.Feed,
+                    canLoadMore = repository.hasMorePages(feedId),
+                    errorMessage = null,
+                )
+            }
+            refresh()
         }
     }
 
     fun loadArticleInPane(articleId: String) {
-        viewModelScope.launch {
-            interactor.selectArticle(articleId)
+        selectArticle(articleId)
+    }
+
+    fun selectArticle(articleId: String) {
+        updateState { state ->
+            state.copy(
+                selectedArticleId = articleId,
+                selectedArticleBookmarked = state.items.firstOrNull { it.id == articleId }?.isBookmarked ?: false,
+                isArticleOpen = true,
+                selectedDestination = ReaderDestination.Feed,
+            )
         }
     }
 
     fun loadMoreItems() {
+        val feedId = mutableState.value.activeFeedId ?: return
+        if (isLoadingNextPage || !repository.hasMorePages(feedId)) return
         viewModelScope.launch {
-            interactor.loadMoreItems()
+            isLoadingNextPage = true
+            try {
+                val source = pagingSource ?: FeedPagingSource(repository = repository, feedId = feedId).also {
+                    pagingSource = it
+                }
+                val key = nextPagingKey ?: return@launch
+                when (val result = source.load(PagingSourceLoadParamsAppend(key, PAGE_SIZE, false))) {
+                    is PagingSourceLoadResultPage -> {
+                        nextPagingKey = result.nextKey
+                        updateState { it.copy(canLoadMore = result.nextKey != null, errorMessage = null) }
+                    }
+                    is PagingSourceLoadResultError -> throw result.throwable
+                    is PagingSourceLoadResultInvalid -> updateState { it.copy(canLoadMore = false) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateState { it.copy(errorMessage = e.message ?: "Ошибка загрузки") }
+            } finally {
+                isLoadingNextPage = false
+            }
         }
     }
 
     fun selectDestination(destination: ReaderDestination) {
-        interactor.selectDestination(destination)
+        updateState {
+            it.copy(
+                selectedDestination = destination,
+                isArticleOpen = if (destination == ReaderDestination.Feed || destination == ReaderDestination.Bookmarks) {
+                    it.isArticleOpen
+                } else {
+                    false
+                },
+            )
+        }
     }
 
     fun closeArticle() {
-        interactor.closeArticle()
+        updateState { it.copy(isArticleOpen = false, selectedArticleId = null, article = null) }
     }
 
     fun selectHub(hubId: String?) {
-        interactor.selectHub(hubId)
+        updateState {
+            it.copy(
+                selectedHubId = if (it.selectedHubId == hubId) null else hubId,
+                selectedTagId = null,
+                selectedPublicationSection = HabrPublicationSection.Articles,
+                selectedDestination = ReaderDestination.Feed,
+                isArticleOpen = false,
+            )
+        }
     }
 
     fun selectTag(tagId: String?) {
-        interactor.selectTag(tagId)
+        updateState {
+            it.copy(
+                selectedTagId = if (it.selectedTagId == tagId) null else tagId,
+                selectedHubId = null,
+                selectedPublicationSection = HabrPublicationSection.Articles,
+                selectedDestination = ReaderDestination.Feed,
+                isArticleOpen = false,
+            )
+        }
     }
 
     fun toggleFavoriteTag(tagId: String) {
         viewModelScope.launch {
-            interactor.toggleFavoriteTag(tagId)
+            val title = mutableState.value.items.flatMap { it.tags }.firstOrNull { it.id == tagId }?.title
+            repository.toggleFavoriteTag(tagId = tagId, title = title)
         }
     }
 
     fun toggleFavoriteHub(hubId: String) {
         viewModelScope.launch {
-            interactor.toggleFavoriteHub(hubId)
+            val title = mutableState.value.items.flatMap { it.hubs }.firstOrNull { it.id == hubId }?.title
+            repository.toggleFavoriteHub(hubId = hubId, title = title)
         }
     }
 
     fun selectPublicationSection(section: HabrPublicationSection) {
-        interactor.selectPublicationSection(section)
+        updateState {
+            it.copy(
+                selectedPublicationSection = section,
+                selectedDestination = ReaderDestination.Feed,
+                isArticleOpen = false,
+                selectedHubId = null,
+                selectedTagId = null,
+                searchQuery = "",
+            )
+        }
     }
 
     fun updateSearchQuery(query: String) {
-        interactor.updateSearchQuery(query)
+        updateState {
+            it.copy(
+                searchQuery = query,
+                selectedHubId = null,
+                selectedTagId = null,
+                selectedDestination = ReaderDestination.Search,
+                isArticleOpen = false,
+            )
+        }
     }
 
     fun clearFilters() {
-        interactor.clearFilters()
+        updateState {
+            it.copy(
+                selectedHubId = null,
+                selectedTagId = null,
+                searchQuery = "",
+                showUnreadOnly = false,
+                isArticleOpen = false,
+            )
+        }
     }
 
     fun setShowUnreadOnly(showUnreadOnly: Boolean) {
-        interactor.setShowUnreadOnly(showUnreadOnly)
+        updateState { it.copy(showUnreadOnly = showUnreadOnly, isArticleOpen = false) }
     }
 
     fun setFeedCardMode(mode: FeedCardMode) {
-        interactor.setFeedCardMode(mode)
+        updateState { it.copy(feedCardMode = mode) }
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
-        interactor.setFeedSortMode(mode)
+        updateState { it.copy(feedSortMode = mode) }
     }
 
     fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
         viewModelScope.launch {
-            interactor.updateSettings(transform)
+            val current = mutableState.value.settings
+            val next = transform(current)
+            updateState { it.copy(settings = next) }
+            if (next.fontScale != current.fontScale) preferencesRepository.setFontScale(next.fontScale)
+            if (next.lineHeightScale != current.lineHeightScale) preferencesRepository.setLineHeightScale(next.lineHeightScale)
+            if (next.themeMode != current.themeMode) preferencesRepository.setThemeMode(next.themeMode)
+            if (next.compactCards != current.compactCards) preferencesRepository.setCompactCards(next.compactCards)
+            if (next.openLinksInsideApp != current.openLinksInsideApp) {
+                preferencesRepository.setOpenLinksInsideApp(next.openLinksInsideApp)
+            }
         }
     }
 
     fun openArticleUrl(url: String) {
         viewModelScope.launch {
-            interactor.openArticleUrl(url)
+            runLoading {
+                val article = repository.getArticleByUrl(url)
+                updateState {
+                    it.copy(
+                        selectedArticleId = article.id,
+                        selectedArticleBookmarked = repository.isBookmarked(article.id),
+                        isArticleOpen = true,
+                        selectedDestination = ReaderDestination.Feed,
+                        errorMessage = null,
+                    )
+                }
+            }
         }
     }
 
     fun saveCustomFeed(id: String?, title: String, url: String) {
+        if (url.isBlank()) return
         viewModelScope.launch {
-            interactor.saveCustomFeed(id, title, url)
+            repository.upsertCustomFeed(id, title, url)
+            val feeds = repository.getFeeds(forceRefresh = true)
+            updateState { it.copy(feeds = feeds) }
         }
     }
 
     fun removeCustomFeed(id: String) {
         viewModelScope.launch {
-            interactor.removeCustomFeed(id)
+            repository.removeCustomFeed(id)
+            val feeds = repository.getFeeds(forceRefresh = true)
+            val activeFeedRemoved = mutableState.value.activeFeedId == id
+            updateState {
+                it.copy(
+                    feeds = feeds,
+                    activeFeedId = if (activeFeedRemoved) feeds.firstOrNull()?.id else it.activeFeedId,
+                )
+            }
         }
     }
 
     fun toggleArticleBookmark(articleId: String) {
         viewModelScope.launch {
-            interactor.toggleArticleBookmark(articleId)
+            repository.toggleBookmark(articleId)
+            updateState { state ->
+                state.copy(
+                    selectedArticleBookmarked = if (state.selectedArticleId == articleId) {
+                        repository.isBookmarked(articleId)
+                    } else {
+                        state.selectedArticleBookmarked
+                    },
+                )
+            }
         }
+    }
+
+    private suspend fun runLoading(block: suspend () -> Unit) {
+        updateState { it.copy(isRefreshing = true, errorMessage = null) }
+        try {
+            block()
+        } catch (e: CancellationException) {
+            updateState { it.copy(isRefreshing = false) }
+            throw e
+        } catch (e: Exception) {
+            updateState { it.copy(errorMessage = e.message ?: "Ошибка загрузки") }
+        } finally {
+            updateState { it.copy(isRefreshing = false) }
+        }
+    }
+
+    private inline fun updateState(transform: (ReaderUiState) -> ReaderUiState) {
+        mutableState.update { current ->
+            val next = transform(current)
+            next.copy(visibleItems = computeVisibleItems(next))
+        }
+    }
+
+    private fun computeVisibleItems(state: ReaderUiState): List<FeedItem> {
+        val sectionItems = when (state.selectedDestination) {
+            ReaderDestination.Bookmarks -> state.items.filter { it.isBookmarked }
+            ReaderDestination.Search -> state.items
+            ReaderDestination.Feed,
+            ReaderDestination.Sources,
+            ReaderDestination.Settings -> state.items
+        }
+        val terms = state.searchQuery.split(Regex("\\s+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        return sectionItems
+            .filter { item -> !state.showUnreadOnly || !item.isRead }
+            .filter { item -> state.selectedHubId == null || item.hubs.any { it.id == state.selectedHubId } }
+            .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
+            .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
+            .let { filtered ->
+                when (state.feedSortMode) {
+                    FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
+                    FeedSortMode.Rating -> filtered.sortedByDescending {
+                        it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull() ?: 0
+                    }
+                }
+            }
+    }
+
+    private fun FeedItem.matchesSearchTerm(rawTerm: String): Boolean {
+        val term = rawTerm.removePrefix("#")
+        val searchableText = listOf(
+            title,
+            summary,
+            descriptionHtml.orEmpty(),
+            author?.displayName.orEmpty(),
+            tags.joinToString(" ") { "${it.title} ${it.id}" },
+            hubs.joinToString(" ") { "${it.title} ${it.id}" },
+        ).joinToString(" ")
+        return searchableText.contains(term, ignoreCase = true)
+    }
+
+    private fun FeedKind.toPublicationSection(): HabrPublicationSection = when (this) {
+        FeedKind.All,
+        FeedKind.Best,
+        FeedKind.Hub,
+        FeedKind.Tag,
+        FeedKind.Search,
+        FeedKind.Custom -> HabrPublicationSection.Articles
+        FeedKind.Posts -> HabrPublicationSection.Posts
+        FeedKind.News -> HabrPublicationSection.News
+    }
+
+    companion object {
+        private const val PAGE_SIZE = 20
+        private const val PAGE_PREFETCH_DISTANCE = 5
+        private const val FIRST_APPEND_PAGE = 1
     }
 }

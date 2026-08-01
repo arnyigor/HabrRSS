@@ -1,5 +1,7 @@
 package com.arny.habrrss
 
+import com.arny.habrrss.data.database.ArticleLocalStateEntity
+import com.arny.habrrss.data.database.FavoriteArticleEntity
 import com.arny.habrrss.data.database.FeedItemEntity
 import com.arny.habrrss.data.database.InMemoryFeedDao
 import kotlinx.coroutines.test.runTest
@@ -22,12 +24,11 @@ class InMemoryFeedDaoTest {
         assertEquals(listOf("two", "one"), dao.getByFeedOnce("feed").map { it.id })
         assertEquals(listOf("one"), dao.search("Kotlin").map { it.id })
 
-        dao.updateRead("one", true)
-        dao.updateBookmark("one", true)
+        dao.upsertArticleLocalState(ArticleLocalStateEntity(articleId = "one", isRead = true))
+        dao.insertFavoriteArticle(FavoriteArticleEntity(articleId = "one", createdAt = 1L))
 
-        val updated = dao.getById("one")
+        val updated = dao.getArticleLocalState("one")
         assertEquals(true, updated?.isRead)
-        assertEquals(true, updated?.isBookmarked)
         assertEquals(listOf("one"), dao.getBookmarksOnce().map { it.id })
 
         dao.deleteOldByFeed("feed", timestamp = 2)

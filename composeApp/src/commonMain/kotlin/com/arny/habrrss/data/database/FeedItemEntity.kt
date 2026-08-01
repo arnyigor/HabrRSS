@@ -10,7 +10,6 @@ import kotlinx.serialization.Serializable
     tableName = "feed_items",
     indices = [
         Index(value = ["feedId"]),
-        Index(value = ["isBookmarked"]),
     ]
 )
 data class FeedItemEntity(
@@ -30,8 +29,6 @@ data class FeedItemEntity(
     val hubsJson: String,
     val rating: String?,
     val commentsCount: Int?,
-    val isRead: Boolean = false,
-    val isBookmarked: Boolean = false,
     val cachedArticleJson: String? = null,
     val fetchedAt: Long,
 )

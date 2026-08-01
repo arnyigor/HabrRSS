@@ -15,6 +15,7 @@ import com.arny.habrrss.domain.usecases.LoadNextPageUseCase
 import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
+import com.arny.habrrss.presentation.ArticleViewModel
 import com.arny.habrrss.presentation.FeedViewModel
 import com.arny.habrrss.presentation.ReaderInteractor
 import io.ktor.client.HttpClient
@@ -60,7 +61,8 @@ val appModule = module {
         )
     }
     single { createBackgroundSyncManager(get()) }
-    viewModel { FeedViewModel(get()) }
+    viewModel { FeedViewModel(repository = get(), preferencesRepository = get()) }
+    viewModel { ArticleViewModel(repository = get()) }
 }
 
 fun initKoin() {

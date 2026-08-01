@@ -28,8 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.arny.habrrss.navigation.Screen
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
@@ -40,15 +38,14 @@ private val bottomNavItems = listOf(
     Triple(Screen.Sources, "RSS", Icons.Filled.RssFeed),
     Triple(Screen.Bookmarks, "Сохр.", Icons.Filled.Bookmark),
     Triple(Screen.Search, "Поиск", Icons.Filled.Search),
-    Triple(Screen.Settings, "Ещё", Icons.Filled.Settings)
+    Triple(Screen.Settings, "Ещё", Icons.Filled.Settings),
 )
 
 @Composable
 internal fun ReaderRail(
-    state: ReaderUiState,
-    navController: NavController,
-    currentRoute: Any?,
+    currentRoute: Screen?,
     onDestinationSelected: (ReaderDestination) -> Unit,
+    onScreenSelected: (Screen) -> Unit,
 ) {
     NavigationRail(
         header = {
@@ -61,17 +58,12 @@ internal fun ReaderRail(
         },
     ) {
         bottomNavItems.forEach { (screen, label, icon) ->
-            val isSelected = currentRoute == screen
+            val isSelected = currentRoute.topLevelScreen() == screen
             NavigationRailItem(
                 selected = isSelected,
                 onClick = {
                     onDestinationSelected(screen.toDestination())
-                    navController.navigate(screen) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            inclusive = false
-                        }
-                        launchSingleTop = true
-                    }
+                    onScreenSelected(screen)
                 },
                 icon = { Icon(icon, contentDescription = label) },
                 label = { Text(label) },
@@ -82,23 +74,18 @@ internal fun ReaderRail(
 
 @Composable
 internal fun ReaderBottomBar(
-    navController: NavController,
-    currentRoute: Any?,
+    currentRoute: Screen?,
     onDestinationSelected: (ReaderDestination) -> Unit,
+    onScreenSelected: (Screen) -> Unit,
 ) {
     NavigationBar {
         bottomNavItems.forEach { (screen, label, icon) ->
-            val isSelected = currentRoute == screen
+            val isSelected = currentRoute.topLevelScreen() == screen
             NavigationBarItem(
                 selected = isSelected,
                 onClick = {
                     onDestinationSelected(screen.toDestination())
-                    navController.navigate(screen) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            inclusive = false
-                        }
-                        launchSingleTop = true
-                    }
+                    onScreenSelected(screen)
                 },
                 icon = { Icon(icon, contentDescription = label) },
                 label = { Text(label, maxLines = 1) },
@@ -107,13 +94,18 @@ internal fun ReaderBottomBar(
     }
 }
 
-private fun Screen.toDestination(): ReaderDestination = when (this) {
+internal fun Screen.toDestination(): ReaderDestination = when (this) {
     Screen.Feed -> ReaderDestination.Feed
     Screen.Sources -> ReaderDestination.Sources
     Screen.Bookmarks -> ReaderDestination.Bookmarks
     Screen.Search -> ReaderDestination.Search
     Screen.Settings -> ReaderDestination.Settings
     is Screen.Article -> ReaderDestination.Feed
+}
+
+private fun Screen?.topLevelScreen(): Screen? = when (this) {
+    is Screen.Article -> Screen.Feed
+    else -> this
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

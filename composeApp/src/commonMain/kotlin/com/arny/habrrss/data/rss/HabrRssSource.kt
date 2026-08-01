@@ -20,6 +20,7 @@ import com.fleeksoft.ksoup.parser.Parser
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import kotlin.time.Clock
 import kotlinx.datetime.Month
 import kotlinx.datetime.toInstant
 
@@ -99,7 +100,7 @@ class HabrRssSource(
             items = items,
             nextCursor = nextCursor,
             fromCache = false,
-            updatedAt = "${System.currentTimeMillis()}"
+            updatedAt = "${Clock.System.now().toEpochMilliseconds()}"
         )
     }
 

@@ -1,5 +1,9 @@
 package com.arny.habrrss.data.repository
 
+import com.arny.habrrss.data.database.ArticleLocalStateEntity
+import com.arny.habrrss.data.database.FavoriteArticleEntity
+import com.arny.habrrss.data.database.FavoriteHubEntity
+import com.arny.habrrss.data.database.FavoriteTagEntity
 import com.arny.habrrss.data.database.FeedDao
 import com.arny.habrrss.data.database.FeedItemEntity
 import com.arny.habrrss.data.preferences.CustomFeedPreference
@@ -19,8 +23,12 @@ import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import kotlinx.coroutines.CancellationException
+import kotlin.time.Clock
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
@@ -59,8 +67,8 @@ class TechReaderRepository(
         feedCursorsFlow.update { it + (feedId to null) }
 
         val page = sourceFor(feedId).getItems(feedId, page = null)
-        val items = page.items.withPersistedFlags()
-        val entities = items.map { item ->
+        val items = page.items.applyPersistedLocalState()
+        val entities = page.items.map { item ->
             item.toEntity(
                 json = json,
                 cachedArticleJson = feedDao.getById(item.id)?.cachedArticleJson,
@@ -87,8 +95,8 @@ class TechReaderRepository(
         val cursor = feedCursorsFlow.value[feedId] ?: return null
 
         val page = sourceFor(feedId).getItems(feedId, page = cursor)
-        val items = page.items.withPersistedFlags()
-        val entities = items.map { item ->
+        val items = page.items.applyPersistedLocalState()
+        val entities = page.items.map { item ->
             item.toEntity(
                 json = json,
                 cachedArticleJson = feedDao.getById(item.id)?.cachedArticleJson,
@@ -112,12 +120,41 @@ class TechReaderRepository(
      */
     fun hasMorePages(feedId: String): Boolean = feedCursorsFlow.value[feedId] != null
 
-    suspend fun getCachedFeed(feedId: String): List<FeedItem> {
-        return feedDao.getByFeedOnce(feedId).map { it.toDomain(json) }
+    fun observeFeed(feedId: String): Flow<List<FeedItem>> = combine(
+        feedDao.getByFeed(feedId),
+        feedDao.getArticleLocalStates(),
+        feedDao.getFavoriteArticles(),
+    ) { entities, localStates, favorites ->
+        entities.map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
     }
 
+    fun observeBookmarks(): Flow<List<FeedItem>> = combine(
+        feedDao.getBookmarks(),
+        feedDao.getArticleLocalStates(),
+        feedDao.getFavoriteArticles(),
+    ) { entities, localStates, favorites ->
+        entities.map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+    }
+
+    fun observeArticleItem(articleId: String): Flow<FeedItem?> = combine(
+        feedDao.observeById(articleId),
+        feedDao.getArticleLocalStates(),
+        feedDao.getFavoriteArticles(),
+    ) { entity, localStates, favorites ->
+        entity?.toDomain(json, localStates.byArticleId(), favorites.articleIds())
+    }
+
+    suspend fun getCachedFeed(feedId: String): List<FeedItem> {
+        val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
+        val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
+        return feedDao.getByFeedOnce(feedId).map { it.toDomain(json, localStates, favorites) }
+    }
+
+    suspend fun isBookmarked(articleId: String): Boolean =
+        feedDao.getFavoriteArticlesOnce().any { it.articleId == articleId }
+
     suspend fun getArticle(articleId: String): ArticleContent {
-        feedDao.updateRead(articleId, true)
+        markRead(articleId)
 
         val entity = feedDao.getById(articleId)
             ?: throw SourceUnavailableException("Article not found: $articleId")
@@ -168,18 +205,21 @@ class TechReaderRepository(
         if (entity == null) {
             val article = externalArticles[articleId] ?: return
             feedDao.insertAll(listOf(article.toExternalEntity(json)))
-            return
         }
-        feedDao.updateBookmark(articleId, !entity.isBookmarked)
+        setBookmarked(articleId, !isBookmarked(articleId))
     }
 
     suspend fun getBookmarks(): List<FeedItem> {
-        return feedDao.getBookmarksOnce().map { it.toDomain(json) }
+        val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
+        val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
+        return feedDao.getBookmarksOnce().map { it.toDomain(json, localStates, favorites) }
     }
 
     suspend fun search(query: String): List<FeedItem> {
         if (query.isBlank()) return emptyList()
-        return feedDao.search(query).map { it.toDomain(json) }
+        val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
+        val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
+        return feedDao.search(query).map { it.toDomain(json, localStates, favorites) }
     }
 
     suspend fun upsertCustomFeed(id: String?, title: String, url: String) {
@@ -199,9 +239,72 @@ class TechReaderRepository(
         getFeeds(forceRefresh = true)
     }
 
+    fun observeFavoriteTagIds(): Flow<Set<String>> =
+        feedDao.getFavoriteTags().map { tags -> tags.mapTo(mutableSetOf()) { it.tagId } }
+
+    fun observeFavoriteHubIds(): Flow<Set<String>> =
+        feedDao.getFavoriteHubs().map { hubs -> hubs.mapTo(mutableSetOf()) { it.hubId } }
+
+    suspend fun getFavoriteTagIds(): Set<String> =
+        feedDao.getFavoriteTagsOnce().mapTo(mutableSetOf()) { it.tagId }
+
+    suspend fun getFavoriteHubIds(): Set<String> =
+        feedDao.getFavoriteHubsOnce().mapTo(mutableSetOf()) { it.hubId }
+
+    suspend fun toggleFavoriteTag(tagId: String, title: String? = null) {
+        if (feedDao.getFavoriteTagsOnce().any { it.tagId == tagId }) {
+            feedDao.deleteFavoriteTag(tagId)
+        } else {
+            feedDao.insertFavoriteTag(
+                FavoriteTagEntity(
+                    tagId = tagId,
+                    title = title,
+                    createdAt = Clock.System.now().toEpochMilliseconds(),
+                )
+            )
+        }
+    }
+
+    suspend fun toggleFavoriteHub(hubId: String, title: String? = null) {
+        if (feedDao.getFavoriteHubsOnce().any { it.hubId == hubId }) {
+            feedDao.deleteFavoriteHub(hubId)
+        } else {
+            feedDao.insertFavoriteHub(
+                FavoriteHubEntity(
+                    hubId = hubId,
+                    title = title,
+                    createdAt = Clock.System.now().toEpochMilliseconds(),
+                )
+            )
+        }
+    }
+
     fun requireFirstFeedId(): String {
         return cachedFeeds.firstOrNull()?.id
             ?: throw SourceUnavailableException("No feed descriptors are available.")
+    }
+
+    private suspend fun markRead(articleId: String) {
+        val current = feedDao.getArticleLocalState(articleId)
+        feedDao.upsertArticleLocalState(
+            (current ?: ArticleLocalStateEntity(articleId = articleId)).copy(
+                isRead = true,
+                lastOpenedAt = Clock.System.now().toEpochMilliseconds(),
+            )
+        )
+    }
+
+    private suspend fun setBookmarked(articleId: String, isBookmarked: Boolean) {
+        if (isBookmarked) {
+            feedDao.insertFavoriteArticle(
+                FavoriteArticleEntity(
+                    articleId = articleId,
+                    createdAt = Clock.System.now().toEpochMilliseconds(),
+                )
+            )
+        } else {
+            feedDao.deleteFavoriteArticle(articleId)
+        }
     }
 
     private suspend fun sourceFor(feedId: String): FeedSource {
@@ -209,12 +312,10 @@ class TechReaderRepository(
         return sourceByFeedId[feedId] ?: primarySource
     }
 
-    private suspend fun List<FeedItem>.withPersistedFlags(): List<FeedItem> = map { item ->
-        val existing = feedDao.getById(item.id)
-        item.copy(
-            isRead = existing?.isRead ?: item.isRead,
-            isBookmarked = existing?.isBookmarked ?: item.isBookmarked,
-        )
+    private suspend fun List<FeedItem>.applyPersistedLocalState(): List<FeedItem> {
+        val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
+        val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
+        return map { item -> item.withLocalState(localStates, favorites) }
     }
 
     private fun CustomFeedPreference.toDescriptor(): FeedDescriptor = FeedDescriptor(
@@ -269,10 +370,8 @@ private fun ArticleContent.toExternalEntity(json: Json): FeedItemEntity = FeedIt
     hubsJson = json.encodeToString(hubs),
     rating = null,
     commentsCount = null,
-    isRead = true,
-    isBookmarked = true,
     cachedArticleJson = json.encodeToString(this),
-    fetchedAt = System.currentTimeMillis(),
+    fetchedAt = Clock.System.now().toEpochMilliseconds(),
 )
 
 private fun ArticleBlock.toPlainText(): String = when (this) {
@@ -314,13 +413,15 @@ private fun FeedItem.toEntity(
     hubsJson = json.encodeToString(hubs),
     rating = rating,
     commentsCount = commentsCount,
-    isRead = isRead,
-    isBookmarked = isBookmarked,
     cachedArticleJson = cachedArticleJson,
-    fetchedAt = System.currentTimeMillis(),
+    fetchedAt = Clock.System.now().toEpochMilliseconds(),
 )
 
-private fun FeedItemEntity.toDomain(json: Json): FeedItem = FeedItem(
+private fun FeedItemEntity.toDomain(
+    json: Json,
+    localStates: Map<String, ArticleLocalStateEntity> = emptyMap(),
+    favoriteArticleIds: Set<String> = emptySet(),
+): FeedItem = FeedItem(
     id = id,
     feedId = feedId,
     title = title,
@@ -337,6 +438,20 @@ private fun FeedItemEntity.toDomain(json: Json): FeedItem = FeedItem(
     hubs = json.decodeFromString(hubsJson),
     rating = rating,
     commentsCount = commentsCount,
-    isRead = isRead,
-    isBookmarked = isBookmarked,
+    isRead = localStates[id]?.isRead == true,
+    isBookmarked = id in favoriteArticleIds,
 )
+
+private fun FeedItem.withLocalState(
+    localStates: Map<String, ArticleLocalStateEntity>,
+    favoriteArticleIds: Set<String>,
+): FeedItem = copy(
+    isRead = localStates[id]?.isRead == true,
+    isBookmarked = id in favoriteArticleIds,
+)
+
+private fun List<ArticleLocalStateEntity>.byArticleId(): Map<String, ArticleLocalStateEntity> =
+    associateBy { it.articleId }
+
+private fun List<FavoriteArticleEntity>.articleIds(): Set<String> =
+    mapTo(mutableSetOf()) { it.articleId }
