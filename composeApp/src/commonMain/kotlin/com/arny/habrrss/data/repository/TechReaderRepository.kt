@@ -207,6 +207,15 @@ class TechReaderRepository(
         getFeeds(forceRefresh = true)
     }
 
+    private suspend fun removeCustomHubFeed(slug: String) {
+        val targetUrl = slug.toHabrHubRssUrl()
+        preferencesRepository?.customFeeds()?.first()
+            .orEmpty()
+            .filter { it.url == targetUrl || it.id == "custom-hub-${slug.hashCode()}" }
+            .forEach { preferencesRepository?.removeCustomFeed(it.id) }
+        cachedFeeds = emptyList()
+    }
+
     fun observeFavoriteTagIds(): Flow<Set<String>> =
         feedDao.getFavoriteTags().map { tags -> tags.mapTo(mutableSetOf()) { it.tagId } }
 
@@ -234,16 +243,19 @@ class TechReaderRepository(
     }
 
     suspend fun toggleFavoriteHub(hubId: String, title: String? = null) {
+        val slug = title?.toHubSlug() ?: hubId.removePrefix("hub-").toHubSlug()
         if (feedDao.getFavoriteHubsOnce().any { it.hubId == hubId }) {
             feedDao.deleteFavoriteHub(hubId)
+            removeCustomHubFeed(slug)
         } else {
             feedDao.insertFavoriteHub(
                 FavoriteHubEntity(
                     hubId = hubId,
-                    title = title,
+                    title = title ?: slug,
                     createdAt = Clock.System.now().toEpochMilliseconds(),
                 )
             )
+            upsertCustomFeed(id = null, title = slug, url = slug)
         }
     }
 
@@ -343,13 +355,16 @@ class TechReaderRepository(
         kind = FeedKind.Custom,
     )
 
-    private fun String.normalizedHubSlug(): String = trim()
+    private fun String.normalizedHubSlug(): String = toHubSlug()
+
+    private fun String.toHubSlug(): String = trim()
         .replace("&amp;", "&")
         .trimEnd('/')
         .substringAfterLast("/hub/", this)
         .substringBefore('/')
         .substringBefore('?')
         .trim()
+        .replace(Regex("\\s+"), "_")
         .lowercase()
 
     private fun String.toHabrHubRssUrl(): String =

@@ -35,13 +35,18 @@ import com.arny.habrrss.domain.models.FeedKind
 internal fun SourceScreen(
     feeds: List<FeedDescriptor>,
     activeFeedId: String?,
+    favoriteHubs: List<Pair<String, String>>,
+    favoriteTags: List<Pair<String, String>>,
     onFeedSelected: (String) -> Unit,
     onCustomFeedSaved: (String?, String, String) -> Unit,
     onCustomFeedRemoved: (String) -> Unit,
+    onFavoriteHubRemoved: (String) -> Unit,
+    onFavoriteTagRemoved: (String) -> Unit,
 ) {
     var editingId by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
     var hub by remember { mutableStateOf("") }
+    val hubFeeds = feeds.filter { it.kind == FeedKind.Custom }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -54,7 +59,7 @@ internal fun SourceScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Свои хабы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Хабы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
                         "Введите только slug хаба на Хабре, например: android, kotlin, machine_learning. " +
                             "RSS-ссылка будет собрана автоматически.",
@@ -103,7 +108,50 @@ internal fun SourceScreen(
             }
         }
 
-        items(feeds, key = { it.id }) { feed ->
+        if (favoriteHubs.isNotEmpty()) {
+            item {
+                Text("Избранные хабы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            items(favoriteHubs, key = { it.first }) { (hubId, title) ->
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        OutlinedButton(onClick = { onFavoriteHubRemoved(hubId) }) { Text("Удалить") }
+                    }
+                }
+            }
+        }
+
+        if (favoriteTags.isNotEmpty()) {
+            item {
+                Text("Избранные теги", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            items(favoriteTags, key = { it.first }) { (tagId, title) ->
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("#$title", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        OutlinedButton(onClick = { onFavoriteTagRemoved(tagId) }) { Text("Удалить") }
+                    }
+                }
+            }
+        }
+
+        item {
+            Text("Добавленные хабы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        }
+        items(hubFeeds, key = { it.id }) { feed ->
             ElevatedCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -121,21 +169,19 @@ internal fun SourceScreen(
                     Text(feed.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(feed.description, style = MaterialTheme.typography.bodyMedium)
                     Text(feed.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (feed.kind == FeedKind.Custom) {
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = {
-                                    editingId = feed.id
-                                    title = feed.title
-                                    hub = feed.url.toHubSlug()
-                                },
-                            ) {
-                                Text("Изменить")
-                            }
-                            OutlinedButton(onClick = { onCustomFeedRemoved(feed.id) }) {
-                                Text("Удалить")
-                            }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                editingId = feed.id
+                                title = feed.title
+                                hub = feed.url.toHubSlug()
+                            },
+                        ) {
+                            Text("Изменить")
+                        }
+                        OutlinedButton(onClick = { onCustomFeedRemoved(feed.id) }) {
+                            Text("Удалить")
                         }
                     }
                 }

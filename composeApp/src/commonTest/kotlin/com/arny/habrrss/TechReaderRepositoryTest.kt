@@ -70,6 +70,27 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun favoriteHubAddsAndRemovesHubFeed() = runTest {
+        val preferencesRepository = DefaultPreferencesRepository()
+        val customRssSource = GenericRssSource(emptyList())
+        val repository = TechReaderRepository(
+            primarySource = FakeFeedSource(),
+            feedDao = InMemoryFeedDao(),
+            customRssSource = customRssSource,
+            preferencesRepository = preferencesRepository,
+        )
+
+        repository.getFeeds()
+        repository.toggleFavoriteHub(hubId = "android", title = "Android")
+
+        assertTrue(repository.getFeeds(forceRefresh = true).any { it.url.contains("/rss/hub/android/") })
+
+        repository.toggleFavoriteHub(hubId = "android", title = "Android")
+
+        assertFalse(repository.getFeeds(forceRefresh = true).any { it.url.contains("/rss/hub/android/") })
+    }
+
+    @Test
     fun customFeedInputIsHabrHubSlug() = runTest {
         val preferencesRepository = DefaultPreferencesRepository()
         val customRssSource = GenericRssSource(emptyList())

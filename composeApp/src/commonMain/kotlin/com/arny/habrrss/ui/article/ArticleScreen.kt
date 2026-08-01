@@ -21,12 +21,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -205,34 +209,59 @@ internal fun ArticleScreen(
     }
 
     if (!hasContent) {
-        ArticleFallbackView(
-            article = article,
-            showBack = showBack,
-            onBack = onBack,
-            isBookmarked = isBookmarked,
-            onBookmark = onBookmark,
+        Scaffold(
             modifier = modifier,
-        )
+            topBar = {
+                ArticleTopBar(
+                    article = article,
+                    showBack = showBack,
+                    onBack = onBack,
+                    isBookmarked = isBookmarked,
+                    onBookmark = onBookmark,
+                )
+            },
+        ) { innerPadding ->
+            ArticleFallbackView(
+                article = article,
+                showBack = false,
+                onBack = onBack,
+                isBookmarked = isBookmarked,
+                onBookmark = onBookmark,
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
         return
     }
 
     val actions = rememberArticleActions()
     val articleListState = rememberLazyListState()
-    ArticleScrollContainer(
-        modifier = modifier.fillMaxSize(),
-        state = articleListState,
-    ) {
-        LazyColumn(
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            ArticleTopBar(
+                article = article,
+                showBack = showBack,
+                onBack = onBack,
+                isBookmarked = isBookmarked,
+                onBookmark = onBookmark,
+            )
+        },
+    ) { innerPadding ->
+        ArticleScrollContainer(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
             state = articleListState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            LazyColumn(
+                state = articleListState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             item {
                 ArticleHeader(
                     article = article,
-                    showBack = showBack,
+                    showBack = false,
                     favoriteTagIds = favoriteTagIds,
                     favoriteHubIds = favoriteHubIds,
                     onBack = onBack,
@@ -269,8 +298,45 @@ internal fun ArticleScreen(
                     modifier = Modifier.widthIn(max = 860.dp),
                 )
             }
+            }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArticleTopBar(
+    article: ArticleContent,
+    showBack: Boolean,
+    onBack: () -> Unit,
+    isBookmarked: Boolean,
+    onBookmark: () -> Unit,
+) {
+    TopAppBar(
+        navigationIcon = {
+            if (showBack) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                }
+            }
+        },
+        title = {
+            Text(
+                text = article.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        actions = {
+            IconButton(onClick = onBookmark) {
+                Icon(
+                    if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                    contentDescription = if (isBookmarked) "Убрать из закладок" else "Сохранить",
+                )
+            }
+        },
+    )
 }
 
 @Composable

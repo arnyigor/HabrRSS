@@ -2,6 +2,7 @@ package com.arny.habrrss.ui.navigation
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -9,10 +10,13 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,7 +38,7 @@ import com.arny.habrrss.presentation.ReaderUiState
 // Mapping of screens to navigation items
 private val bottomNavItems = listOf(
     Triple(Screen.Feed, "Лента", Icons.AutoMirrored.Filled.Article),
-    Triple(Screen.Sources, "RSS", Icons.Filled.RssFeed),
+    Triple(Screen.Sources, "Хабы", Icons.Filled.RssFeed),
     Triple(Screen.Bookmarks, "Сохр.", Icons.Filled.Bookmark),
     Triple(Screen.Settings, "Ещё", Icons.Filled.Settings),
 )
@@ -106,6 +110,7 @@ internal fun Screen.toDestination(): ReaderDestination = when (this) {
 internal fun ReaderTopBar(
     state: ReaderUiState,
     onRefresh: () -> Unit,
+    onSearchChanged: (String) -> Unit,
 ) {
     TopAppBar(
         title = {
@@ -122,6 +127,26 @@ internal fun ReaderTopBar(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (state.selectedDestination == ReaderDestination.Feed || state.selectedDestination == ReaderDestination.Bookmarks) {
+                    OutlinedTextField(
+                        value = state.searchQuery,
+                        onValueChange = onSearchChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        placeholder = { Text("Поиск") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color.White,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
+                            focusedLeadingIconColor = Color.White,
+                            unfocusedLeadingIconColor = Color.White.copy(alpha = 0.75f),
+                            focusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
+                            unfocusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
+                        ),
+                    )
+                }
             }
         },
         actions = {

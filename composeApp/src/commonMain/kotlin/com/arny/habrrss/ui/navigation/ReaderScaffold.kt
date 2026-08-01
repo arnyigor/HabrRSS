@@ -107,6 +107,7 @@ internal fun ReaderApp(
             selectedTopLevel = backStackManager.currentTab,
             isArticleRoute = isArticleRoute,
             onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
+            onSearchChanged = { viewModel.dispatch(FeedIntent.UpdateSearchQuery(it)) },
             onDestinationSelected = { viewModel.dispatch(FeedIntent.SelectDestination(it)) },
             onTopLevelSelected = navigateToTopLevel,
             onCloseArticle = closeArticle,
@@ -147,6 +148,7 @@ internal fun ReaderAppContent(
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
+    onSearchChanged: (String) -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
     onTopLevelSelected: (Screen) -> Unit,
     onCloseArticle: () -> Unit,
@@ -167,6 +169,7 @@ internal fun ReaderAppContent(
                 selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
                 onRefresh = onRefresh,
+                onSearchChanged = onSearchChanged,
                 onDestinationSelected = onDestinationSelected,
                 onTopLevelSelected = onTopLevelSelected,
                 onCloseArticle = onCloseArticle,
@@ -184,6 +187,7 @@ internal fun ReaderAppContent(
                 selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
                 onRefresh = onRefresh,
+                onSearchChanged = onSearchChanged,
                 onDestinationSelected = onDestinationSelected,
                 onTopLevelSelected = onTopLevelSelected,
                 navHost = navHost,
@@ -200,6 +204,7 @@ private fun ReaderWideLayout(
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
+    onSearchChanged: (String) -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
     onTopLevelSelected: (Screen) -> Unit,
     onCloseArticle: () -> Unit,
@@ -218,7 +223,7 @@ private fun ReaderWideLayout(
         )
         Column(modifier = Modifier.weight(1f)) {
             if (!isArticleRoute) {
-                ReaderTopBar(state = state, onRefresh = onRefresh)
+                ReaderTopBar(state = state, onRefresh = onRefresh, onSearchChanged = onSearchChanged)
             }
             state.errorMessage?.let { ErrorBanner(it, onRetry = onRefresh) }
             navHost(Modifier.weight(1f), true)
@@ -267,6 +272,7 @@ private fun ReaderMobileLayout(
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
+    onSearchChanged: (String) -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
     onTopLevelSelected: (Screen) -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
@@ -288,7 +294,7 @@ private fun ReaderMobileLayout(
                 .fillMaxSize(),
         ) {
             if (!isArticleRoute) {
-                ReaderTopBar(state = state, onRefresh = onRefresh)
+                ReaderTopBar(state = state, onRefresh = onRefresh, onSearchChanged = onSearchChanged)
             }
             state.errorMessage?.let { ErrorBanner(it, onRetry = onRefresh) }
             navHost(Modifier.weight(1f), false)
@@ -382,8 +388,8 @@ private fun FeedRoute(
         isWide = isWide,
         state = state,
         onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
-        onSearchChanged = { viewModel.dispatch(FeedIntent.UpdateSearchQuery(it)) },
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
+        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
         onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
         onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
         onArticleSelected = openArticle,
@@ -405,8 +411,8 @@ private fun BookmarksRoute(
         isWide = isWide,
         state = state,
         onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
-        onSearchChanged = { viewModel.dispatch(FeedIntent.UpdateSearchQuery(it)) },
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
+        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
         onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
         onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
         onArticleSelected = openArticle,
@@ -442,12 +448,16 @@ private fun SourcesRoute(
     SourceScreen(
         feeds = state.feeds,
         activeFeedId = state.activeFeedId,
+        favoriteHubs = state.favoriteHubs,
+        favoriteTags = state.favoriteTags,
         onFeedSelected = { feedId ->
             viewModel.dispatch(FeedIntent.SelectFeed(feedId))
             navigateToFeed()
         },
         onCustomFeedSaved = { id, title, url -> viewModel.dispatch(FeedIntent.SaveCustomFeed(id, title, url)) },
         onCustomFeedRemoved = { viewModel.dispatch(FeedIntent.RemoveCustomFeed(it)) },
+        onFavoriteHubRemoved = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
+        onFavoriteTagRemoved = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
     )
 }
 
@@ -528,6 +538,7 @@ private fun ReaderAppContentPreview() {
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
             onRefresh = {},
+            onSearchChanged = {},
             onDestinationSelected = {},
             onTopLevelSelected = {},
             onCloseArticle = {},

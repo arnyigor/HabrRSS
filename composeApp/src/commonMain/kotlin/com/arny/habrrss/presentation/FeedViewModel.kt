@@ -302,8 +302,11 @@ class FeedViewModel(
 
     fun toggleFavoriteHub(hubId: String) {
         viewModelScope.launch {
-            val title = mutableState.value.items.flatMap { it.hubs }.firstOrNull { it.id == hubId }?.title
+            val currentState = mutableState.value
+            val title = currentState.items.flatMap { it.hubs }.firstOrNull { it.id == hubId }?.title
+                ?: currentState.favoriteHubs.firstOrNull { it.first == hubId }?.second
             repository.toggleFavoriteHub(hubId = hubId, title = title)
+            repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
         }
     }
 
