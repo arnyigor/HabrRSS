@@ -1,8 +1,10 @@
 package com.arny.habrrss.ui.article
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -84,7 +86,7 @@ private fun CommentsSection(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Комментарии (${comments.size})",
+            text = "Комментарии (${comments.sumOf { it.totalCount() }})",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -105,51 +107,77 @@ private fun CommentItem(
     depth: Int,
 ) {
     val actions = rememberArticleActions()
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (depth * 12).dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(start = if (depth == 0) 0.dp else 12.dp),
+        color = if (depth == 0) {
+            MaterialTheme.colorScheme.surface
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        },
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = comment.author?.displayName ?: "Аноним",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            comment.publishedAt?.let { date ->
-                humanReadableDate(date).takeIf { it.isNotBlank() }?.let { readable ->
+        Row(Modifier.fillMaxWidth()) {
+            if (depth > 0) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                )
+            }
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "  $readable",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = comment.author?.displayName ?: "Аноним",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    comment.publishedAt?.let { date ->
+                        humanReadableDate(date).takeIf { it.isNotBlank() }?.let { readable ->
+                            Text(
+                                text = " · $readable",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                comment.body.forEach { block ->
+                    ArticleBlockView(
+                        block = block,
+                        settings = settings,
+                        modifier = Modifier.widthIn(max = 860.dp),
+                        onLinkClick = { url -> actions.openUrl(url) },
+                    )
+                }
+                if (comment.children.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier.padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        comment.children.forEach { child ->
+                            CommentItem(
+                                comment = child,
+                                settings = settings,
+                                depth = depth + 1,
+                            )
+                        }
+                    }
                 }
             }
         }
-        comment.body.forEach { block ->
-            ArticleBlockView(
-                block = block,
-                settings = settings,
-                modifier = Modifier.widthIn(max = 860.dp),
-                onLinkClick = { url -> actions.openUrl(url) },
-            )
-        }
-        comment.children.forEach { child ->
-            CommentItem(
-                comment = child,
-                settings = settings,
-                depth = depth + 1,
-            )
-        }
-        if (depth == 0 && comment.children.isNotEmpty()) {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-        }
     }
 }
+
+private fun CommentNode.totalCount(): Int = 1 + children.sumOf { it.totalCount() }
 
 @Composable
 private fun CommentsUnavailable(

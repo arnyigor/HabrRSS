@@ -23,6 +23,8 @@ data class ReaderUiState(
     val selectedPublicationSection: HabrPublicationSection = HabrPublicationSection.Articles,
     val favoriteHubIds: Set<String> = emptySet(),
     val favoriteTagIds: Set<String> = emptySet(),
+    val favoriteHubTitles: Map<String, String> = emptyMap(),
+    val favoriteTagTitles: Map<String, String> = emptyMap(),
     val searchQuery: String = "",
     val showUnreadOnly: Boolean = false,
     val feedCardMode: FeedCardMode = FeedCardMode.Comfortable,
@@ -45,7 +47,9 @@ data class ReaderUiState(
 
     val favoriteTags: List<Pair<String, String>>
         get() {
-            val knownTags = (items.flatMap { item -> item.tags } + article?.tags.orEmpty())
+            val knownTags = (favoriteTagTitles.entries.map { TagTitle(it.key, it.value) } +
+                items.flatMap { item -> item.tags.map { TagTitle(it.id, it.title) } } +
+                article?.tags.orEmpty().map { TagTitle(it.id, it.title) })
                 .distinctBy { it.id }
                 .associate { it.id to it.title }
             return favoriteTagIds
@@ -55,7 +59,9 @@ data class ReaderUiState(
 
     val favoriteHubs: List<Pair<String, String>>
         get() {
-            val knownHubs = (items.flatMap { item -> item.hubs } + article?.hubs.orEmpty())
+            val knownHubs = (favoriteHubTitles.entries.map { HubTitle(it.key, it.value) } +
+                items.flatMap { item -> item.hubs.map { HubTitle(it.id, it.title) } } +
+                article?.hubs.orEmpty().map { HubTitle(it.id, it.title) })
                 .distinctBy { it.id }
                 .associate { it.id to it.title }
             return favoriteHubIds
@@ -104,6 +110,10 @@ data class ReaderUiState(
             CachePolicy.RefreshInBackground -> "refresh-in-background"
         }
 }
+
+private data class HubTitle(val id: String, val title: String)
+
+private data class TagTitle(val id: String, val title: String)
 
 private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
 

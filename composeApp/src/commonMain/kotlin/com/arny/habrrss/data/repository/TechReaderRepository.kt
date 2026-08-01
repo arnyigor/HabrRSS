@@ -263,11 +263,23 @@ class TechReaderRepository(
     fun observeFavoriteHubIds(): Flow<Set<String>> =
         feedDao.getFavoriteHubs().map { hubs -> hubs.mapTo(mutableSetOf()) { it.hubId } }
 
+    fun observeFavoriteTagTitles(): Flow<Map<String, String>> =
+        feedDao.getFavoriteTags().map { tags -> tags.mapNotNull { it.title?.let { title -> it.tagId to title } }.toMap() }
+
+    fun observeFavoriteHubTitles(): Flow<Map<String, String>> =
+        feedDao.getFavoriteHubs().map { hubs -> hubs.mapNotNull { it.title?.let { title -> it.hubId to title } }.toMap() }
+
     suspend fun getFavoriteTagIds(): Set<String> =
         feedDao.getFavoriteTagsOnce().mapTo(mutableSetOf()) { it.tagId }
 
     suspend fun getFavoriteHubIds(): Set<String> =
         feedDao.getFavoriteHubsOnce().mapTo(mutableSetOf()) { it.hubId }
+
+    suspend fun getFavoriteTagTitles(): Map<String, String> =
+        feedDao.getFavoriteTagsOnce().mapNotNull { it.title?.let { title -> it.tagId to title } }.toMap()
+
+    suspend fun getFavoriteHubTitles(): Map<String, String> =
+        feedDao.getFavoriteHubsOnce().mapNotNull { it.title?.let { title -> it.hubId to title } }.toMap()
 
     suspend fun toggleFavoriteTag(tagId: String, title: String? = null) {
         if (feedDao.getFavoriteTagsOnce().any { it.tagId == tagId }) {

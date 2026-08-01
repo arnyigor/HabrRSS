@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,19 +41,45 @@ internal fun FeedFilterBar(
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
 ) {
-    val favoriteHubs = remember(state.favoriteHubs, state.items) {
-        state.favoriteHubs.map { (id, title) -> Hub(id, title) }
+    val selectedHub = remember(state.selectedHubId, state.favoriteHubs, state.favoriteHubTitles, state.items) {
+        state.selectedHubId?.let { selectedId ->
+            val title = state.favoriteHubTitles[selectedId]
+                ?: state.favoriteHubs.firstOrNull { it.first == selectedId }?.second
+                ?: state.items.asSequence().flatMap { it.hubs.asSequence() }.firstOrNull { it.id == selectedId }?.title
+                ?: selectedId.removePrefix("hub-")
+            Hub(selectedId, title)
+        }
     }
-    val tags = remember(state.items, state.favoriteTagIds, state.favoriteTags) {
-        val all = (state.favoriteTags.map { (id, title) -> Tag(id, title) } + state.items.flatMap { it.tags })
+    val favoriteHubs = remember(selectedHub, state.favoriteHubs) {
+        (listOfNotNull(selectedHub) + state.favoriteHubs.map { (id, title) -> Hub(id, title) })
+            .distinctBy { it.id }
+    }
+    val tags = remember(state.items, state.favoriteTagIds, state.favoriteTags, state.favoriteTagTitles, state.selectedTagId) {
+        val selectedTag = state.selectedTagId?.let { selectedId ->
+            val title = state.favoriteTagTitles[selectedId]
+                ?: state.favoriteTags.firstOrNull { it.first == selectedId }?.second
+                ?: state.items.asSequence().flatMap { it.tags.asSequence() }.firstOrNull { it.id == selectedId }?.title
+                ?: selectedId.removePrefix("tag-")
+            Tag(selectedId, title)
+        }
+        val all = (listOfNotNull(selectedTag) +
+            state.favoriteTags.map { (id, title) -> Tag(id, title) } +
+            state.items.flatMap { it.tags })
             .distinctBy { it.id }
             .filterNot { it.title.trim().matches(Regex("-?\\d+")) }
-        val favorite = all.filter { it.id in state.favoriteTagIds }
-        (favorite + all.filterNot { it.id in state.favoriteTagIds })
+        val active = all.filter { it.id == state.selectedTagId }
+        val favorite = all.filter { it.id in state.favoriteTagIds && it.id != state.selectedTagId }
+        (active + favorite + all.filterNot { it.id in state.favoriteTagIds || it.id == state.selectedTagId })
             .distinctBy { it.id }
             .take(32)
     }
-    var filtersExpanded by rememberSaveable { mutableStateOf(false) }
+    var filtersExpanded by rememberSaveable { mutableStateOf(state.activeFilterCount > 0) }
+
+    LaunchedEffect(state.selectedHubId, state.selectedTagId) {
+        if (state.selectedHubId != null || state.selectedTagId != null) {
+            filtersExpanded = true
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -71,7 +98,7 @@ internal fun FeedFilterBar(
             )
             if (filtersExpanded) {
                 if (favoriteHubs.isNotEmpty()) {
-                    SectionLabel("Избранные хабы")
+                    SectionLabel(if (state.selectedHubId != null) "Хабы · выбранный поток выделен" else "Избранные хабы")
                     ChipRow {
                         FeedFilterChip(
                             title = "Все хабы",
@@ -80,7 +107,12 @@ internal fun FeedFilterBar(
                         )
                         favoriteHubs.forEach { hub ->
                             FeedFilterChip(
-                                title = "${hub.title} (${state.items.count { item -> item.hubs.any { it.id == hub.id } }})",
+                                title = buildString {
+                                    if (hub.id == state.selectedHubId) append("✓ ")
+                                    append(hub.title)
+                                    val count = state.items.count { item -> item.hubs.any { it.id == hub.id } }
+                                    if (count > 0) append(" ($count)")
+                                },
                                 selected = state.selectedHubId == hub.id,
                                 onClick = { onHubSelected(hub.id) },
                             )
@@ -88,7 +120,7 @@ internal fun FeedFilterBar(
                     }
                 }
                 if (tags.isNotEmpty()) {
-                    SectionLabel("Теги")
+                    SectionLabel(if (state.selectedTagId != null) "Теги · выбранный поток выделен" else "Теги")
                     ChipRow {
                         FeedFilterChip(
                             title = "Все теги",
@@ -98,9 +130,11 @@ internal fun FeedFilterBar(
                         tags.forEach { tag ->
                             FeedFilterChip(
                                 title = buildString {
+                                    if (tag.id == state.selectedTagId) append("✓ ")
                                     if (tag.id in state.favoriteTagIds) append("★ ")
                                     append("#${tag.title}")
-                                    append(" (${state.items.count { item -> item.tags.any { it.id == tag.id } }})")
+                                    val count = state.items.count { item -> item.tags.any { it.id == tag.id } }
+                                    if (count > 0) append(" ($count)")
                                 },
                                 selected = state.selectedTagId == tag.id,
                                 onClick = { onTagSelected(tag.id) },
