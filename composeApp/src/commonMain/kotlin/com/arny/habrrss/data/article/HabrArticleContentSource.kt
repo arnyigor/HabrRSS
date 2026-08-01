@@ -40,24 +40,48 @@ class HabrArticleContentSource(
     }
 
     override suspend fun getCommentsByUrl(url: String): List<CommentNode> {
-        val articleId = extractArticleId(url) ?: return emptyList()
+        val articleId = extractArticleId(url)
+        if (articleId == null) {
+            println("[COMMENTS-API] extractArticleId failed for url=$url")
+            return emptyList()
+        }
         val baseUrl = normalizeArticleUrl(url)
         val isThreadType = url.contains("/companies/") || url.contains("/posts/") || url.contains("/news/")
+        println("[COMMENTS-API] articleId=$articleId, isThreadType=$isThreadType")
 
         val primaryUrl = "https://habr.com/kek/v2/${if (isThreadType) "threads" else "articles"}/$articleId/comments/"
         val fallbackUrl = "https://habr.com/kek/v2/${if (isThreadType) "articles" else "threads"}/$articleId/comments/"
+        println("[COMMENTS-API] primaryUrl=$primaryUrl")
 
-        val primaryBody = client.get(primaryUrl).let { response ->
-            if (response.status.isSuccess()) response.bodyAsText() else null
-        } ?: return parseComments(client.get(fallbackUrl).bodyAsText(), baseUrl)
+        val primaryResponse = client.get(primaryUrl)
+        println("[COMMENTS-API] primaryResponse status=${primaryResponse.status}")
+        val primaryBody = if (primaryResponse.status.isSuccess()) {
+            primaryResponse.bodyAsText()
+        } else {
+            println("[COMMENTS-API] primary failed (${primaryResponse.status}), trying fallback: $fallbackUrl")
+            val fallbackResponse = client.get(fallbackUrl)
+            println("[COMMENTS-API] fallbackResponse status=${fallbackResponse.status}")
+            if (fallbackResponse.status.isSuccess()) fallbackResponse.bodyAsText() else null
+        }
 
+        if (primaryBody == null) {
+            println("[COMMENTS-API] Both primary and fallback failed")
+            return emptyList()
+        }
+        println("[COMMENTS-API] Response body length=${primaryBody.length}, first 200 chars=${primaryBody.take(200)}")
         return parseComments(primaryBody, baseUrl)
     }
 
     private fun parseComments(body: String, baseUrl: String): List<CommentNode> = runCatching {
         val response = json.decodeFromString<CommentsApiResponse>(body)
-        buildCommentTree(response.comments, baseUrl)
-    }.getOrDefault(emptyList())
+        println("[COMMENTS-API] Parsed: comments=${response.comments.size}, threads=${response.threads.size}, moderated=${response.moderated.size}")
+        val tree = buildCommentTree(response.comments, baseUrl)
+        println("[COMMENTS-API] Built tree: ${tree.size} root comments")
+        tree
+    }.getOrElse { e ->
+        println("[COMMENTS-API] JSON parse error: ${e::class.simpleName}: ${e.message}")
+        emptyList()
+    }
 
     private fun buildCommentTree(
         rawComments: Map<String, CommentsApiComment>,

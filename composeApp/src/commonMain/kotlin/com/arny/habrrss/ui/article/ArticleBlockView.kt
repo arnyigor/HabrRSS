@@ -48,21 +48,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.Measurable
-import androidx.compose.ui.layout.Placeable
-import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
-import kotlin.math.max
 
 @Composable
 internal fun ArticleBlockView(
@@ -411,81 +406,32 @@ private fun TableBlockView(
     val columnCount = block.rows.maxOfOrNull { it.size } ?: 0
     if (columnCount == 0) return
     Box(modifier.horizontalScroll(rememberScrollState())) {
-        TableLayout(
-            rows = block.rows,
-            columnCount = columnCount,
-            modifier = Modifier,
-            onLinkClick = onLinkClick,
-            highlightQuery = highlightQuery,
-            highlightCurrentRange = highlightCurrentRange,
-        )
-    }
-}
-
-/**
- * Aligns table columns across rows. Column width is the widest cell in that column
- * (capped), so rows with different cell counts or content lengths stay aligned.
- */
-@Composable
-private fun TableLayout(
-    rows: List<List<List<ArticleBlock>>>,
-    columnCount: Int,
-    modifier: Modifier,
-    onLinkClick: ((String) -> Unit)?,
-    highlightQuery: String? = null,
-    highlightCurrentRange: IntRange? = null,
-) {
-    val minCellWidth = 80.dp
-    val maxCellWidth = 320.dp
-    SubcomposeLayout(modifier = modifier) {
-        val cellSlots: List<List<Measurable>> = rows.mapIndexed { rowIndex, row ->
-            row.mapIndexed { colIndex, cell ->
-                subcompose("cell-$rowIndex-$colIndex") {
-                    TableCellContent(
-                        cell = cell,
-                        isHeader = false,
-                        onLinkClick = onLinkClick,
-                        highlightQuery = highlightQuery,
-                        highlightCurrentRange = highlightCurrentRange,
-                    )
-                }.single()
-            }
-        }
-
-        // Pass 1: intrinsic width per cell (bounded so long text does not blow up layout)
-        val intrinsic: List<List<Placeable>> = cellSlots.map { row ->
-            row.map { it.measure(Constraints(maxWidth = maxCellWidth.roundToPx())) }
-        }
-
-        val columnWidths = IntArray(columnCount) { col ->
-            var maxWidth = 0
-            intrinsic.forEach { row ->
-                if (col < row.size) maxWidth = max(maxWidth, row[col].width)
-            }
-            maxWidth.coerceIn(minCellWidth.roundToPx(), maxCellWidth.roundToPx())
-        }
-
-        // Pass 2: fixed width per column so text wraps consistently and columns align
-        val placed: List<List<Placeable>> = cellSlots.mapIndexed { rowIndex, row ->
-            row.mapIndexed { colIndex, measurable ->
-                val width = columnWidths.getOrElse(colIndex) { minCellWidth.roundToPx() }
-                measurable.measure(Constraints(minWidth = width, maxWidth = width))
-            }
-        }
-
-        val rowHeights = placed.map { row -> row.maxOfOrNull { it.height } ?: 0 }
-        val totalWidth = columnWidths.sum()
-        val totalHeight = rowHeights.sum()
-
-        layout(totalWidth, totalHeight) {
-            var y = 0
-            placed.forEachIndexed { rowIndex, row ->
-                var x = 0
-                row.forEachIndexed { colIndex, placeable ->
-                    placeable.place(x, y)
-                    x += columnWidths.getOrElse(colIndex) { minCellWidth.roundToPx() }
+        Column {
+            block.rows.forEachIndexed { rowIndex, row ->
+                Row(Modifier.fillMaxWidth()) {
+                    val isFirstRow = rowIndex == 0
+                    row.forEach { cell ->
+                        TableCellContent(
+                            cell = cell,
+                            isHeader = isFirstRow,
+                            onLinkClick = onLinkClick,
+                            highlightQuery = highlightQuery,
+                            highlightCurrentRange = highlightCurrentRange,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    // Pad missing cells so all rows have the same column count
+                    repeat((columnCount - row.size).coerceAtLeast(0)) {
+                        TableCellContent(
+                            cell = emptyList(),
+                            isHeader = rowIndex == 0,
+                            onLinkClick = onLinkClick,
+                            highlightQuery = highlightQuery,
+                            highlightCurrentRange = highlightCurrentRange,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
-                y += rowHeights[rowIndex]
             }
         }
     }
@@ -498,8 +444,10 @@ private fun TableCellContent(
     onLinkClick: ((String) -> Unit)?,
     highlightQuery: String? = null,
     highlightCurrentRange: IntRange? = null,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
+        modifier = modifier,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         color = if (isHeader) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
     ) {
