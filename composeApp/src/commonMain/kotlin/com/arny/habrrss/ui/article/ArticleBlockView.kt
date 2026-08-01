@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -405,31 +406,29 @@ private fun TableBlockView(
     if (block.rows.isEmpty()) return
     val columnCount = block.rows.maxOfOrNull { it.size } ?: 0
     if (columnCount == 0) return
-    Box(modifier.horizontalScroll(rememberScrollState())) {
-        Column {
-            block.rows.forEachIndexed { rowIndex, row ->
-                Row(Modifier.fillMaxWidth()) {
-                    val isFirstRow = rowIndex == 0
-                    row.forEach { cell ->
-                        TableCellContent(
-                            cell = cell,
-                            isHeader = isFirstRow,
-                            onLinkClick = onLinkClick,
-                            highlightQuery = highlightQuery,
-                            highlightCurrentRange = highlightCurrentRange,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    // Pad missing cells so all rows have the same column count
-                    repeat((columnCount - row.size).coerceAtLeast(0)) {
-                        TableCellContent(
-                            cell = emptyList(),
-                            isHeader = rowIndex == 0,
-                            onLinkClick = onLinkClick,
-                            highlightQuery = highlightQuery,
-                            highlightCurrentRange = highlightCurrentRange,
-                            modifier = Modifier.weight(1f),
-                        )
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val availableCellWidth = maxWidth / columnCount.toFloat()
+        val cellWidth = if (columnCount <= 2) {
+            availableCellWidth.coerceAtLeast(160.dp)
+        } else {
+            availableCellWidth.coerceIn(160.dp, 280.dp)
+        }
+
+        Box(Modifier.horizontalScroll(rememberScrollState())) {
+            Column {
+                block.rows.forEachIndexed { rowIndex, row ->
+                    Row {
+                        val isFirstRow = rowIndex == 0
+                        repeat(columnCount) { columnIndex ->
+                            TableCellContent(
+                                cell = row.getOrNull(columnIndex).orEmpty(),
+                                isHeader = isFirstRow,
+                                onLinkClick = onLinkClick,
+                                highlightQuery = highlightQuery,
+                                highlightCurrentRange = highlightCurrentRange,
+                                modifier = Modifier.width(cellWidth),
+                            )
+                        }
                     }
                 }
             }
