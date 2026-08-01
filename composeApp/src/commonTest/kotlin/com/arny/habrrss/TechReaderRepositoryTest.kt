@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class TechReaderRepositoryTest {
@@ -40,6 +41,30 @@ class TechReaderRepositoryTest {
         assertTrue(refreshed.items.first { it.id == "kotlin" }.isRead)
         assertTrue(refreshed.items.first { it.id == "compose" }.isBookmarked)
         assertFalse(refreshed.items.first { it.id == "kotlin" }.isBookmarked)
+    }
+
+    @Test
+    fun refreshWritesOnlyNewOrChangedItemsAndKeepsLocalHistory() = runTest {
+        val dao = InMemoryFeedDao()
+        val source = MutableRemoteFeedSource(
+            listOf(
+                remoteItem(id = "one", title = "Old title"),
+                remoteItem(id = "stale", title = "Keep me"),
+            ),
+        )
+        val repository = TechReaderRepository(primarySource = source, feedDao = dao)
+
+        repository.refreshFeed("feed")
+        val firstFetchedAt = dao.getById("one")?.fetchedAt
+        repository.refreshFeed("feed")
+
+        assertEquals(firstFetchedAt, dao.getById("one")?.fetchedAt)
+
+        source.items = listOf(remoteItem(id = "one", title = "New title"))
+        repository.refreshFeed("feed")
+
+        assertEquals("New title", dao.getById("one")?.title)
+        assertNotNull(dao.getById("stale"))
     }
 
     @Test
@@ -80,29 +105,55 @@ class TechReaderRepositoryTest {
             (offlineArticle.blocks.single() as ArticleBlock.Paragraph).inline.plain(),
         )
     }
-
-    @Test
-    fun preloadArticlesCachesFirstTenWithoutMarkingRead() = runTest {
-        val contentSource = CountingArticleContentSource()
-        val repository = TechReaderRepository(
-            primarySource = ManyItemsFeedSource(itemCount = 12),
-            feedDao = InMemoryFeedDao(),
-            articleContentSource = contentSource,
-        )
-
-        val page = repository.refreshFeed("feed")
-        repository.preloadArticles(page.items.map { it.id })
-
-        assertEquals(10, contentSource.urls.size)
-        assertFalse(repository.getCachedFeed("feed").any { it.isRead })
-
-        contentSource.fail = true
-        val cachedArticle = repository.getArticle("article-0")
-
-        assertEquals("Full article from content source.", cachedArticle.sourceNotice)
-        assertEquals("Full body for article-0", (cachedArticle.blocks.single() as ArticleBlock.Paragraph).inline.plain())
-    }
 }
+
+internal class MutableRemoteFeedSource(
+    var items: List<FeedItem>,
+) : FeedSource {
+    override suspend fun getFeeds(): List<FeedDescriptor> = listOf(
+        FeedDescriptor(
+            id = "feed",
+            title = "Feed",
+            sourceTitle = "Fake",
+            url = "https://example.com/rss",
+            description = "Fake feed",
+            kind = FeedKind.Custom,
+        ),
+    )
+
+    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage = FeedPage(
+        items = items.map { it.copy(feedId = feedId) },
+        nextCursor = null,
+        fromCache = false,
+        updatedAt = "2026-05-01",
+    )
+
+    @Deprecated("Use ArticleContentSource instead")
+    override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
+
+    override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+}
+
+private fun remoteItem(
+    id: String,
+    title: String,
+): FeedItem = FeedItem(
+    id = id,
+    feedId = "feed",
+    title = title,
+    summary = "Summary $title",
+    url = "https://example.com/$id",
+    imageUrl = null,
+    author = Author("author", "Author", null),
+    publishedAt = "2026-05-01",
+    publishedAtEpoch = null,
+    tags = listOf(Tag("kotlin", "Kotlin")),
+    hubs = listOf(Hub("android", "Android")),
+    rating = null,
+    commentsCount = null,
+    isRead = false,
+    isBookmarked = false,
+)
 
 internal class FakeFeedSource : FeedSource {
     val kotlinTag = Tag("kotlin", "Kotlin")
@@ -219,76 +270,6 @@ internal class MutableFakeArticleContentSource : ArticleContentSource {
     }
 }
 
-internal class CountingArticleContentSource : ArticleContentSource {
-    val urls = mutableListOf<String>()
-    var fail: Boolean = false
-
-    override suspend fun getArticleByUrl(url: String): ArticleContent {
-        if (fail) error("Network is unavailable")
-        urls += url
-        val itemId = url.substringAfterLast("/")
-        return ArticleContent(
-            id = itemId,
-            title = "Full $itemId",
-            url = url,
-            imageUrl = "https://example.com/$itemId.jpg",
-            author = Author("author", "Author", null),
-            publishedAt = "2026-05-01",
-            tags = listOf(Tag("kotlin", "Kotlin")),
-            hubs = listOf(Hub("android", "Android")),
-            blocks = listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Full body for $itemId")))),
-            sourceNotice = "Full article from content source.",
-        )
-    }
-}
-
-internal class ManyItemsFeedSource(
-    private val itemCount: Int,
-) : FeedSource {
-    override suspend fun getFeeds(): List<FeedDescriptor> = listOf(
-        FeedDescriptor(
-            id = "feed",
-            title = "Feed",
-            sourceTitle = "Fake",
-            url = "https://example.com/rss",
-            description = "Fake feed",
-            kind = FeedKind.Custom,
-        ),
-    )
-
-    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
-        val author = Author("author", "Author", null)
-        return FeedPage(
-            items = List(itemCount) { index ->
-                FeedItem(
-                    id = "article-$index",
-                    feedId = feedId,
-                    title = "Article $index",
-                    summary = "Summary $index",
-                    url = "https://example.com/article-$index",
-                    imageUrl = null,
-                    author = author,
-                    publishedAt = "2026-05-01",
-                    publishedAtEpoch = index.toLong(),
-                    tags = listOf(Tag("kotlin", "Kotlin")),
-                    hubs = listOf(Hub("android", "Android")),
-                    rating = null,
-                    commentsCount = null,
-                    isRead = false,
-                    isBookmarked = false,
-                )
-            },
-            nextCursor = null,
-            fromCache = false,
-            updatedAt = "2026-05-01",
-        )
-    }
-
-    @Deprecated("Use ArticleContentSource instead")
-    override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
-
-    override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
-}
 
 private fun List<InlineNode>.plain(): String = joinToString("") { node ->
     when (node) {

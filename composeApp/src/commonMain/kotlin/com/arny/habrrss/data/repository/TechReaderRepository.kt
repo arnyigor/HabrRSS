@@ -69,13 +69,10 @@ class TechReaderRepository(
 
         val page = sourceFor(feedId).getItems(feedId, page = null)
         val items = page.items.applyPersistedLocalState()
-        val entities = page.items.map { item ->
-            item.toEntity(
-                json = json,
-                cachedArticleJson = feedDao.getById(item.id)?.cachedArticleJson,
-            )
+        val entities = page.items.changedRemoteEntities()
+        if (entities.isNotEmpty()) {
+            feedDao.insertAll(entities)
         }
-        feedDao.insertAll(entities)
 
         // Store cursor for next page
         feedCursorsFlow.update { it + (feedId to page.nextCursor) }
@@ -97,13 +94,10 @@ class TechReaderRepository(
 
         val page = sourceFor(feedId).getItems(feedId, page = cursor)
         val items = page.items.applyPersistedLocalState()
-        val entities = page.items.map { item ->
-            item.toEntity(
-                json = json,
-                cachedArticleJson = feedDao.getById(item.id)?.cachedArticleJson,
-            )
+        val entities = page.items.changedRemoteEntities()
+        if (entities.isNotEmpty()) {
+            feedDao.insertAll(entities)
         }
-        feedDao.insertAll(entities)
 
         // Update cursor for next page
         feedCursorsFlow.update { it + (feedId to page.nextCursor) }
@@ -161,26 +155,6 @@ class TechReaderRepository(
             ?: throw SourceUnavailableException("Article not found: $articleId")
 
         return loadAndCacheArticle(entity)
-    }
-
-    /**
-     * Warms up full article bodies for the first visible items without changing local read state.
-     */
-    suspend fun preloadArticles(articleIds: List<String>, limit: Int = DEFAULT_PRELOAD_ARTICLES_LIMIT) {
-        articleIds.distinct().take(limit).forEach { articleId ->
-            val entity = feedDao.getById(articleId) ?: return@forEach
-            val cachedArticle = entity.cachedArticleJson?.let { cached ->
-                runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
-            }
-            if (cachedArticle?.blocks?.isNotEmpty() == true) return@forEach
-            try {
-                loadAndCacheArticle(entity)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                // Preloading is best effort. Explicit article opening will show an error if needed.
-            }
-        }
     }
 
     suspend fun getArticleByUrl(url: String): ArticleContent {
@@ -274,6 +248,23 @@ class TechReaderRepository(
     fun requireFirstFeedId(): String {
         return cachedFeeds.firstOrNull()?.id
             ?: throw SourceUnavailableException("No feed descriptors are available.")
+    }
+
+    private suspend fun List<FeedItem>.changedRemoteEntities(): List<FeedItemEntity> {
+        val now = Clock.System.now().toEpochMilliseconds()
+        return mapNotNull { item ->
+            val current = feedDao.getById(item.id)
+            val next = item.toEntity(
+                json = json,
+                cachedArticleJson = current?.cachedArticleJson,
+                fetchedAt = current?.fetchedAt ?: now,
+            )
+            when {
+                current == null -> next.copy(fetchedAt = now)
+                current.hasSameRemoteData(next) -> null
+                else -> next.copy(fetchedAt = now)
+            }
+        }
     }
 
     private suspend fun loadAndCacheArticle(entity: FeedItemEntity): ArticleContent {
@@ -420,6 +411,7 @@ private fun InlineNode.toPlainText(): String = when (this) {
 private fun FeedItem.toEntity(
     json: Json,
     cachedArticleJson: String? = null,
+    fetchedAt: Long = Clock.System.now().toEpochMilliseconds(),
 ): FeedItemEntity = FeedItemEntity(
     id = id,
     feedId = feedId,
@@ -437,8 +429,11 @@ private fun FeedItem.toEntity(
     rating = rating,
     commentsCount = commentsCount,
     cachedArticleJson = cachedArticleJson,
-    fetchedAt = Clock.System.now().toEpochMilliseconds(),
+    fetchedAt = fetchedAt,
 )
+
+private fun FeedItemEntity.hasSameRemoteData(other: FeedItemEntity): Boolean =
+    copy(cachedArticleJson = null, fetchedAt = 0L) == other.copy(cachedArticleJson = null, fetchedAt = 0L)
 
 private fun FeedItemEntity.toDomain(
     json: Json,
@@ -478,5 +473,3 @@ private fun List<ArticleLocalStateEntity>.byArticleId(): Map<String, ArticleLoca
 
 private fun List<FavoriteArticleEntity>.articleIds(): Set<String> =
     mapTo(mutableSetOf()) { it.articleId }
-
-private const val DEFAULT_PRELOAD_ARTICLES_LIMIT = 10

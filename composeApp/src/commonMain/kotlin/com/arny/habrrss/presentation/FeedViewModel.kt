@@ -58,7 +58,6 @@ class FeedViewModel(
 
     private var feedJob: Job? = null
     private var localStateJob: Job? = null
-    private var preloadJob: Job? = null
     private var isLoadingNextPage = false
     private var pagingSource: FeedPagingSource? = null
     private var nextPagingKey: Int? = FIRST_APPEND_PAGE
@@ -177,9 +176,8 @@ class FeedViewModel(
         viewModelScope.launch {
             runLoading {
                 repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
-                val page = repository.refreshFeed(feedId)
+                repository.refreshFeed(feedId)
                 updateState { it.copy(canLoadMore = repository.hasMorePages(feedId), errorMessage = null) }
-                preloadFirstArticles(page.items)
             }
         }
     }
@@ -240,7 +238,6 @@ class FeedViewModel(
                     is PagingSourceLoadResultPage -> {
                         nextPagingKey = result.nextKey
                         updateState { it.copy(canLoadMore = result.nextKey != null, errorMessage = null) }
-                        preloadFirstArticles(result.data)
                     }
                     is PagingSourceLoadResultError -> throw result.throwable
                     is PagingSourceLoadResultInvalid -> updateState { it.copy(canLoadMore = false) }
@@ -434,14 +431,6 @@ class FeedViewModel(
     private fun refreshIfCurrentFeedIsEmpty() {
         if (mutableState.value.items.isEmpty()) {
             refresh()
-        }
-    }
-
-    private fun preloadFirstArticles(items: List<FeedItem>) {
-        if (items.isEmpty()) return
-        preloadJob?.cancel()
-        preloadJob = viewModelScope.launch {
-            repository.preloadArticles(items.map { it.id })
         }
     }
 

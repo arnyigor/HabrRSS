@@ -1,7 +1,6 @@
 package com.arny.habrrss.di
 
 import com.arny.habrrss.core.network.createHttpClient
-import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.article.HabrArticleContentSource
 import com.arny.habrrss.data.database.createPlatformFeedDao
 import com.arny.habrrss.data.preferences.createUserPreferencesRepository
@@ -35,9 +34,6 @@ val appModule = module {
             primarySource = HabrRssSource(get()),
             feedDao = get(),
             articleContentSource = get<HabrArticleContentSource>(),
-            secondarySources = listOf(
-                HabrApiSource(),
-            ),
             customRssSource = get<GenericRssSource>(),
             preferencesRepository = get(),
         )

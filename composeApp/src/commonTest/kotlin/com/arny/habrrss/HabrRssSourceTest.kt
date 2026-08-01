@@ -2,6 +2,7 @@ package com.arny.habrrss
 
 import com.arny.habrrss.data.rss.HabrRssSource
 import com.arny.habrrss.domain.models.FeedKind
+import com.arny.habrrss.domain.models.PageCursor
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -22,10 +23,22 @@ class HabrRssSourceTest {
 
         val feeds = source.getFeeds()
 
+        assertEquals(1, feeds.size)
         assertTrue(feeds.any { it.kind == FeedKind.All && it.url.contains("/rss/articles/") })
         assertFalse(feeds.any { it.url.contains("/rss/posts/") || it.url.contains("/rss/news/") })
-        assertTrue(feeds.all { it.kind == FeedKind.All || it.kind == FeedKind.Hub })
+        assertTrue(feeds.all { it.kind == FeedKind.All })
         assertTrue(feeds.all { it.url.contains("with_hubs=true") && it.url.contains("with_tags=true") })
+    }
+
+    @Test
+    fun ignoresRequestedPageBecauseHabrRssHasOnlyLatestLimit() = runTest {
+        val urls = mutableListOf<String>()
+        val source = HabrRssSource(mockClient("<rss><channel/></rss>", urls))
+
+        source.getItems(HabrRssSource.FeedIds.All, page = PageCursor("2"))
+
+        assertEquals(1, urls.size)
+        assertFalse(urls.single().contains("page="))
     }
 
     @Test
@@ -66,8 +79,55 @@ class HabrRssSourceTest {
         assertNotNull(page.updatedAt)
     }
 
-    private fun mockClient(body: String): HttpClient = HttpClient(
-        MockEngine {
+    @Test
+    fun filtersOnlyArticleUrlsAndNormalizesDuplicateCategories() = runTest {
+        val source = HabrRssSource(
+            mockClient(
+                """
+                <rss>
+                  <channel>
+                    <item>
+                      <title><![CDATA[Про ML]]></title>
+                      <link>https://habr.com/ru/articles/1065638/</link>
+                      <guid isPermaLink="true">https://habr.com/ru/articles/1065638/</guid>
+                      <description><![CDATA[<p>Описание</p>]]></description>
+                      <category><![CDATA[ Машинное обучение ]]></category>
+                      <category><![CDATA[Искусственный интеллект]]></category>
+                      <category><![CDATA[ искусственный интеллект ]]></category>
+                      <category><![CDATA[нейронные сети]]></category>
+                    </item>
+                    <item>
+                      <title>Новость</title>
+                      <link>https://habr.com/ru/news/1/</link>
+                      <description>Не статья</description>
+                    </item>
+                    <item>
+                      <title>Пост</title>
+                      <link>https://habr.com/ru/posts/2/</link>
+                      <description>Не статья</description>
+                    </item>
+                  </channel>
+                </rss>
+                """.trimIndent(),
+            ),
+        )
+
+        val items = source.getItems(HabrRssSource.FeedIds.All, page = null).items
+
+        assertEquals(listOf("habr-1065638"), items.map { it.id })
+        assertEquals(
+            listOf("Машинное обучение", "Искусственный интеллект", "нейронные сети"),
+            items.single().hubs.map { it.title },
+        )
+        assertEquals(
+            listOf("Машинное обучение", "Искусственный интеллект", "нейронные сети"),
+            items.single().tags.map { it.title },
+        )
+    }
+
+    private fun mockClient(body: String, urls: MutableList<String> = mutableListOf()): HttpClient = HttpClient(
+        MockEngine { request ->
+            urls += request.url.toString()
             respond(
                 content = body,
                 status = HttpStatusCode.OK,
