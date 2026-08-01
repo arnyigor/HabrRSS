@@ -438,9 +438,9 @@ private fun TableLayout(
     val minCellWidth = 80.dp
     val maxCellWidth = 320.dp
     SubcomposeLayout(modifier = modifier) {
-        val cellSlots: List<List<Measurable>> = rows.map { row ->
-            row.map { cell ->
-                subcompose(Unit) {
+        val cellSlots: List<List<Measurable>> = rows.mapIndexed { rowIndex, row ->
+            row.mapIndexed { colIndex, cell ->
+                subcompose("cell-$rowIndex-$colIndex") {
                     TableCellContent(
                         cell = cell,
                         isHeader = false,
