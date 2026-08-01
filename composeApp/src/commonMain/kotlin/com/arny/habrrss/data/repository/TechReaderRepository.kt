@@ -162,27 +162,13 @@ class TechReaderRepository(
     }
 
     suspend fun getArticleComments(articleId: String): List<CommentNode> {
-        val entity = feedDao.getById(articleId)
-        if (entity == null) {
-            println("[COMMENTS] Entity not found for articleId=$articleId")
-            return emptyList()
-        }
-        println("[COMMENTS] Found entity: id=${entity.id}, url=${entity.url}")
-        val source = articleContentSource as? ArticleCommentsSource
-        if (source == null) {
-            println("[COMMENTS] articleContentSource is not ArticleCommentsSource: ${articleContentSource?.let { it::class.simpleName }}")
-            return emptyList()
-        }
+        val entity = feedDao.getById(articleId) ?: return emptyList()
+        val source = articleContentSource as? ArticleCommentsSource ?: return emptyList()
         return try {
-            println("[COMMENTS] Calling source.getCommentsByUrl(${entity.url})")
-            val result = source.getCommentsByUrl(entity.url)
-            println("[COMMENTS] Got ${result.size} root comments")
-            result
+            source.getCommentsByUrl(entity.url)
         } catch (error: CancellationException) {
             throw error
-        } catch (e: Exception) {
-            println("[COMMENTS] Exception: ${e::class.simpleName}: ${e.message}")
-            e.printStackTrace()
+        } catch (_: Exception) {
             emptyList()
         }
     }

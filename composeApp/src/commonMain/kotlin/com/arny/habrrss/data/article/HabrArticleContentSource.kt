@@ -40,51 +40,35 @@ class HabrArticleContentSource(
     }
 
     override suspend fun getCommentsByUrl(url: String): List<CommentNode> {
-        val articleId = extractArticleId(url)
-        if (articleId == null) {
-            println("[COMMENTS-API] extractArticleId failed for url=$url")
-            return emptyList()
-        }
+        val articleId = extractArticleId(url) ?: return emptyList()
         val baseUrl = normalizeArticleUrl(url)
-        val isThreadType = url.contains("/companies/") || url.contains("/posts/") || url.contains("/news/")
-        println("[COMMENTS-API] articleId=$articleId, isThreadType=$isThreadType")
+        // Habr kek/v2 API: the "threads" endpoint is the correct one for all article types.
+        // The "articles" endpoint returns 404 for most content.
+        val threadsUrl = "https://habr.com/kek/v2/threads/$articleId/comments/"
+        val articlesUrl = "https://habr.com/kek/v2/articles/$articleId/comments/"
 
-        val primaryUrl = "https://habr.com/kek/v2/${if (isThreadType) "threads" else "articles"}/$articleId/comments/"
-        val fallbackUrl = "https://habr.com/kek/v2/${if (isThreadType) "articles" else "threads"}/$articleId/comments/"
-        println("[COMMENTS-API] primaryUrl=$primaryUrl")
-
-        val primaryResponse = client.get(primaryUrl)
-        println("[COMMENTS-API] primaryResponse status=${primaryResponse.status}")
-        val primaryBody = if (primaryResponse.status.isSuccess()) {
-            primaryResponse.bodyAsText()
+        val response = client.get(threadsUrl)
+        val body = if (response.status.isSuccess()) {
+            response.bodyAsText()
         } else {
-            println("[COMMENTS-API] primary failed (${primaryResponse.status}), trying fallback: $fallbackUrl")
-            val fallbackResponse = client.get(fallbackUrl)
-            println("[COMMENTS-API] fallbackResponse status=${fallbackResponse.status}")
-            if (fallbackResponse.status.isSuccess()) fallbackResponse.bodyAsText() else null
+            // Fallback: some older articles may use the "articles" endpoint
+            val fallbackResponse = client.get(articlesUrl)
+            if (fallbackResponse.status.isSuccess()) fallbackResponse.bodyAsText() else return emptyList()
         }
-
-        if (primaryBody == null) {
-            println("[COMMENTS-API] Both primary and fallback failed")
-            return emptyList()
-        }
-        println("[COMMENTS-API] Response body length=${primaryBody.length}, first 200 chars=${primaryBody.take(200)}")
-        return parseComments(primaryBody, baseUrl)
+        return parseComments(body, baseUrl)
     }
 
     private fun parseComments(body: String, baseUrl: String): List<CommentNode> = runCatching {
         val response = json.decodeFromString<CommentsApiResponse>(body)
-        println("[COMMENTS-API] Parsed: comments=${response.comments.size}, threads=${response.threads.size}, moderated=${response.moderated.size}")
-        val tree = buildCommentTree(response.comments, baseUrl)
-        println("[COMMENTS-API] Built tree: ${tree.size} root comments")
+        val tree = buildCommentTree(response.comments, response.threads, baseUrl)
         tree
-    }.getOrElse { e ->
-        println("[COMMENTS-API] JSON parse error: ${e::class.simpleName}: ${e.message}")
+    }.getOrElse { _ ->
         emptyList()
     }
 
     private fun buildCommentTree(
         rawComments: Map<String, CommentsApiComment>,
+        threadIds: List<String>,
         baseUrl: String,
     ): List<CommentNode> {
         val nodes = mutableMapOf<String, MutableCommentNode>()
@@ -106,26 +90,31 @@ class HabrArticleContentSource(
             )
         }
 
-        val attached = mutableSetOf<String>()
+        // Build parent→children relationships
         rawComments.values.forEach { raw ->
             val node = nodes[raw.id] ?: return@forEach
             raw.children.forEach { childId ->
                 nodes[childId]?.let { child ->
                     node.children.add(child)
-                    attached.add(childId)
                 }
             }
         }
 
-        val roots = rawComments.values
-            .asSequence()
-            .filter { it.id !in attached }
-            .mapNotNull { nodes[it.id] }
+        // Use threads array for root identification (more reliable than "not attached" heuristic)
+        val rootIds = threadIds.ifEmpty {
+            // Fallback: if threads array is empty, use "not attached to any parent" heuristic
+            val attached = mutableSetOf<String>()
+            rawComments.values.forEach { raw ->
+                raw.children.forEach { childId ->
+                    if (childId in nodes) attached.add(childId)
+                }
+            }
+            rawComments.keys.filter { it !in attached }
+        }
+
+        return rootIds.mapNotNull { nodes[it] }
             .sortedBy { it.publishedAtEpoch ?: Long.MAX_VALUE }
             .map { it.toDomain() }
-            .toList()
-
-        return roots
     }
 
     private fun parseCommentMessage(message: String, baseUrl: String): List<ArticleBlock> {
@@ -170,16 +159,9 @@ class HabrArticleContentSource(
 internal data class CommentsApiResponse(
     @SerialName("comments") val comments: Map<String, CommentsApiComment> = emptyMap(),
     @SerialName("moderated") val moderated: Map<String, CommentsApiComment> = emptyMap(),
-    @SerialName("threads") val threads: List<CommentsApiThread> = emptyList(),
+    @SerialName("threads") val threads: List<String> = emptyList(),
     @SerialName("pinnedCommentIds") val pinnedCommentIds: List<String> = emptyList(),
-    @SerialName("lastCommentTimestamp") val lastCommentTimestamp: String? = null,
     @SerialName("cacheKey") val cacheKey: String? = null,
-)
-
-@Serializable
-internal data class CommentsApiThread(
-    @SerialName("id") val id: String = "",
-    @SerialName("comments") val comments: List<String> = emptyList(),
 )
 
 @Serializable

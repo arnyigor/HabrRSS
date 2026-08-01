@@ -144,12 +144,9 @@ class ArticleViewModel(
     private fun loadExtras(articleId: String) {
         viewModelScope.launch {
             mutableState.update { it.copy(isLoadingExtras = true) }
-            println("[ARTICLE-VM] loadExtras start for articleId=$articleId")
             try {
                 val comments = repository.getArticleComments(articleId)
-                println("[ARTICLE-VM] loadExtras comments loaded: ${comments.size}")
                 val related = repository.getRelatedArticles(articleId)
-                println("[ARTICLE-VM] loadExtras related loaded: ${related.size}")
                 mutableState.update { state ->
                     if (state.articleId == articleId) {
                         state.copy(comments = comments, relatedArticles = related, isLoadingExtras = false)
@@ -159,8 +156,7 @@ class ArticleViewModel(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                println("[ARTICLE-VM] loadExtras error: ${e::class.simpleName}: ${e.message}")
+            } catch (_: Exception) {
                 mutableState.update { it.copy(isLoadingExtras = false) }
             }
         }
