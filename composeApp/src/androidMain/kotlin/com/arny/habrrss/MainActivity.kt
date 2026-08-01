@@ -21,8 +21,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.dark(HabrSystemBarColor),
+            navigationBarStyle = SystemBarStyle.dark(HabrSystemBarColor),
         )
         super.onCreate(savedInstanceState)
         appContext = applicationContext
@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+private val HabrSystemBarColor: Int = Color.rgb(0x26, 0x32, 0x3B)
 
 @Preview
 @Composable

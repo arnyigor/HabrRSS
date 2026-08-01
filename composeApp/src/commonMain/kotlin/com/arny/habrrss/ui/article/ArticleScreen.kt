@@ -45,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
+import com.arny.habrrss.domain.models.CommentNode
+import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.ui.components.EmptyState
 
@@ -189,6 +191,10 @@ internal fun ArticleScreen(
     onFavoriteTagToggled: (String) -> Unit,
     isBookmarked: Boolean,
     onBookmark: () -> Unit,
+    comments: List<CommentNode> = emptyList(),
+    relatedArticles: List<FeedItem> = emptyList(),
+    isLoadingExtras: Boolean = false,
+    onRelatedArticleSelected: (String) -> Unit = {},
 ) {
     if (article == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -313,6 +319,10 @@ internal fun ArticleScreen(
             item {
                 ArticleFooterSections(
                     article = article,
+                    comments = comments,
+                    relatedArticles = relatedArticles,
+                    isLoadingExtras = isLoadingExtras,
+                    onRelatedArticleSelected = onRelatedArticleSelected,
                     modifier = Modifier.widthIn(max = 860.dp),
                 )
             }

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.domain.models.ArticleContent
+import com.arny.habrrss.domain.models.CommentNode
+import com.arny.habrrss.domain.models.FeedItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +18,9 @@ data class ArticleUiState(
     val article: ArticleContent? = null,
     val isLoading: Boolean = false,
     val isBookmarked: Boolean = false,
+    val comments: List<CommentNode> = emptyList(),
+    val relatedArticles: List<FeedItem> = emptyList(),
+    val isLoadingExtras: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -51,7 +56,15 @@ class ArticleViewModel(
         articleJob?.cancel()
         articleJob = viewModelScope.launch {
             mutableState.update {
-                it.copy(articleId = articleId, article = null, isLoading = true, errorMessage = null)
+                it.copy(
+                    articleId = articleId,
+                    article = null,
+                    isLoading = true,
+                    comments = emptyList(),
+                    relatedArticles = emptyList(),
+                    isLoadingExtras = false,
+                    errorMessage = null,
+                )
             }
             try {
                 val article = repository.getArticle(articleId)
@@ -65,6 +78,7 @@ class ArticleViewModel(
                     )
                 }
                 observeBookmark(article.id)
+                loadExtras(article.id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -78,7 +92,16 @@ class ArticleViewModel(
     fun openArticleUrl(url: String) {
         articleJob?.cancel()
         articleJob = viewModelScope.launch {
-            mutableState.update { it.copy(article = null, isLoading = true, errorMessage = null) }
+            mutableState.update {
+                it.copy(
+                    article = null,
+                    isLoading = true,
+                    comments = emptyList(),
+                    relatedArticles = emptyList(),
+                    isLoadingExtras = false,
+                    errorMessage = null,
+                )
+            }
             try {
                 val article = repository.getArticleByUrl(url)
                 mutableState.update {
@@ -91,6 +114,7 @@ class ArticleViewModel(
                     )
                 }
                 observeBookmark(article.id)
+                loadExtras(article.id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -115,6 +139,27 @@ class ArticleViewModel(
         bookmarkJob?.cancel()
         bookmarkJob = null
         mutableState.value = ArticleUiState()
+    }
+
+    private fun loadExtras(articleId: String) {
+        viewModelScope.launch {
+            mutableState.update { it.copy(isLoadingExtras = true) }
+            try {
+                val comments = repository.getArticleComments(articleId)
+                val related = repository.getRelatedArticles(articleId)
+                mutableState.update { state ->
+                    if (state.articleId == articleId) {
+                        state.copy(comments = comments, relatedArticles = related, isLoadingExtras = false)
+                    } else {
+                        state
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                mutableState.update { it.copy(isLoadingExtras = false) }
+            }
+        }
     }
 
     private fun observeBookmark(articleId: String) {

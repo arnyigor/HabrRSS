@@ -38,4 +38,11 @@ interface ArticleContentSource {
     suspend fun getArticleByUrl(url: String): ArticleContent
 }
 
+interface ArticleCommentsSource {
+    /**
+     * Best-effort comments loading from the original article page.
+     */
+    suspend fun getCommentsByUrl(url: String): List<CommentNode>
+}
+
 class SourceUnavailableException(message: String) : RuntimeException(message)

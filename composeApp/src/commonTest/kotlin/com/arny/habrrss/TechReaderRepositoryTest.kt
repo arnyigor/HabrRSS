@@ -128,6 +128,62 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun getRelatedArticlesReturnsMatchesSortedByScoreAndDate() = runTest {
+        val source = MutableRemoteFeedSource(
+            listOf(
+                relatedItem(id = "base", tags = listOf("kotlin", "compose"), hubs = listOf("android"), publishedAtEpoch = 100),
+                relatedItem(id = "strong", tags = listOf("kotlin", "compose"), hubs = emptyList(), publishedAtEpoch = 200),
+                relatedItem(id = "tag-match", tags = listOf("kotlin"), hubs = emptyList(), publishedAtEpoch = 150),
+                relatedItem(id = "hub-match", tags = emptyList(), hubs = listOf("android"), publishedAtEpoch = 300),
+                relatedItem(id = "unrelated", tags = listOf("cpp"), hubs = emptyList(), publishedAtEpoch = 400),
+            ),
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed("feed")
+        val related = repository.getRelatedArticles("base", limit = 3)
+
+        assertEquals(listOf("strong", "tag-match", "hub-match"), related.map { it.id })
+        assertTrue(related.none { it.id == "unrelated" })
+    }
+
+    @Test
+    fun getRelatedArticlesReturnsEmptyWhenNoOverlap() = runTest {
+        val source = MutableRemoteFeedSource(
+            listOf(
+                relatedItem(id = "base", tags = listOf("kotlin"), hubs = emptyList(), publishedAtEpoch = 100),
+                relatedItem(id = "other", tags = listOf("cpp"), hubs = emptyList(), publishedAtEpoch = 200),
+            ),
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed("feed")
+        val related = repository.getRelatedArticles("base")
+
+        assertTrue(related.isEmpty())
+    }
+
+    @Test
+    fun getArticleCommentsReturnsEmptyWhenSourceDoesNotSupportComments() = runTest {
+        val repository = TechReaderRepository(
+            primarySource = FakeFeedSource(),
+            feedDao = InMemoryFeedDao(),
+            articleContentSource = FakeArticleContentSource(),
+        )
+
+        repository.refreshFeed("feed")
+        val comments = repository.getArticleComments("kotlin")
+
+        assertTrue(comments.isEmpty())
+    }
+
+    @Test
     fun getArticleUsesCachedFullArticleWhenNetworkFails() = runTest {
         val contentSource = MutableFakeArticleContentSource()
         val repository = TechReaderRepository(
@@ -193,6 +249,29 @@ private fun remoteItem(
     publishedAtEpoch = null,
     tags = listOf(Tag("kotlin", "Kotlin")),
     hubs = listOf(Hub("android", "Android")),
+    rating = null,
+    commentsCount = null,
+    isRead = false,
+    isBookmarked = false,
+)
+
+private fun relatedItem(
+    id: String,
+    tags: List<String>,
+    hubs: List<String>,
+    publishedAtEpoch: Long,
+): FeedItem = FeedItem(
+    id = id,
+    feedId = "feed",
+    title = "Article $id",
+    summary = "Summary $id",
+    url = "https://example.com/$id",
+    imageUrl = null,
+    author = Author("author", "Author", null),
+    publishedAt = "2026-05-01",
+    publishedAtEpoch = publishedAtEpoch,
+    tags = tags.map { Tag(it, it) },
+    hubs = hubs.map { Hub(it, it) },
     rating = null,
     commentsCount = null,
     isRead = false,

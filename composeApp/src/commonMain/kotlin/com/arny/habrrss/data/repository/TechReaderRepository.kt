@@ -13,12 +13,16 @@ import com.arny.habrrss.data.rss.HtmlArticleParser
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
+import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedPage
 import com.arny.habrrss.domain.models.InlineNode
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.PageCursor
+import com.arny.habrrss.domain.models.Tag
+import com.arny.habrrss.domain.source.ArticleCommentsSource
 import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
@@ -155,6 +159,43 @@ class TechReaderRepository(
             ?: throw SourceUnavailableException("Article not found: $articleId")
 
         return loadAndCacheArticle(entity)
+    }
+
+    suspend fun getArticleComments(articleId: String): List<CommentNode> {
+        val entity = feedDao.getById(articleId) ?: return emptyList()
+        val source = articleContentSource as? ArticleCommentsSource ?: return emptyList()
+        return try {
+            source.getCommentsByUrl(entity.url)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun getRelatedArticles(articleId: String, limit: Int = RELATED_ARTICLES_LIMIT): List<FeedItem> {
+        val entity = feedDao.getById(articleId) ?: return emptyList()
+        val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
+        val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
+        val tagIds = entity.tags(json)
+        val hubIds = entity.hubs(json)
+        if (tagIds.isEmpty() && hubIds.isEmpty()) return emptyList()
+        return feedDao.getByFeedOnce(entity.feedId)
+            .asSequence()
+            .filterNot { it.id == entity.id }
+            .map { candidate ->
+                val score = candidate.tags(json).count { it in tagIds } * TAG_MATCH_WEIGHT +
+                    candidate.hubs(json).count { it in hubIds } * HUB_MATCH_WEIGHT
+                candidate to score
+            }
+            .filter { (_, score) -> score > 0 }
+            .sortedWith(
+                compareByDescending<Pair<FeedItemEntity, Int>> { it.second }
+                    .thenByDescending { it.first.publishedAtEpoch ?: it.first.fetchedAt },
+            )
+            .take(limit)
+            .map { (candidate, _) -> candidate.toDomain(json, localStates, favorites) }
+            .toList()
     }
 
     suspend fun getArticleByUrl(url: String): ArticleContent {
@@ -500,3 +541,13 @@ private fun List<ArticleLocalStateEntity>.byArticleId(): Map<String, ArticleLoca
 
 private fun List<FavoriteArticleEntity>.articleIds(): Set<String> =
     mapTo(mutableSetOf()) { it.articleId }
+
+private fun FeedItemEntity.tags(json: Json): Set<String> =
+    runCatching { json.decodeFromString<List<Tag>>(tagsJson).mapTo(mutableSetOf()) { it.id } }.getOrDefault(emptySet())
+
+private fun FeedItemEntity.hubs(json: Json): Set<String> =
+    runCatching { json.decodeFromString<List<Hub>>(hubsJson).mapTo(mutableSetOf()) { it.id } }.getOrDefault(emptySet())
+
+private const val RELATED_ARTICLES_LIMIT = 6
+private const val TAG_MATCH_WEIGHT = 2
+private const val HUB_MATCH_WEIGHT = 1

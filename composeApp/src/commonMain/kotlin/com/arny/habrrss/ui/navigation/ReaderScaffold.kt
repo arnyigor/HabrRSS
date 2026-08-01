@@ -122,6 +122,7 @@ internal fun ReaderApp(
             onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
             onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
             onArticleBookmarkToggled = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
+            onRelatedArticleSelected = openArticle,
             navHost = { modifier, wide ->
                 AppNavHost(
                     backStack = if (wide) listOf(displayRoute) else backStackManager.currentBackStack,
@@ -157,6 +158,7 @@ internal fun ReaderAppContent(
     onFavoriteHubToggled: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
     onArticleBookmarkToggled: () -> Unit,
+    onRelatedArticleSelected: (String) -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -178,6 +180,7 @@ internal fun ReaderAppContent(
                 onFavoriteHubToggled = onFavoriteHubToggled,
                 onFavoriteTagToggled = onFavoriteTagToggled,
                 onArticleBookmarkToggled = onArticleBookmarkToggled,
+                onRelatedArticleSelected = onRelatedArticleSelected,
                 navHost = navHost,
             )
         } else {
@@ -213,6 +216,7 @@ private fun ReaderWideLayout(
     onFavoriteHubToggled: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
     onArticleBookmarkToggled: () -> Unit,
+    onRelatedArticleSelected: (String) -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
     Row(Modifier.fillMaxSize()) {
@@ -247,6 +251,10 @@ private fun ReaderWideLayout(
                     onFavoriteTagToggled = onFavoriteTagToggled,
                     isBookmarked = articleState.isBookmarked,
                     onBookmark = onArticleBookmarkToggled,
+                    comments = articleState.comments,
+                    relatedArticles = articleState.relatedArticles,
+                    isLoadingExtras = articleState.isLoadingExtras,
+                    onRelatedArticleSelected = onRelatedArticleSelected,
                 )
                 articleError != null -> Box(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -519,6 +527,13 @@ private fun ArticleRoute(
             onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
             isBookmarked = articleState.isBookmarked,
             onBookmark = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
+            comments = articleState.comments,
+            relatedArticles = articleState.relatedArticles,
+            isLoadingExtras = articleState.isLoadingExtras,
+            onRelatedArticleSelected = { articleId ->
+                viewModel.dispatch(FeedIntent.SelectArticle(articleId))
+                articleViewModel.dispatch(ArticleIntent.Open(articleId))
+            },
         )
     }
 }
@@ -543,6 +558,7 @@ private fun ReaderAppContentPreview() {
             onFavoriteHubToggled = {},
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
+            onRelatedArticleSelected = {},
             navHost = { modifier, _ ->
                 Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Лента статей")
