@@ -196,11 +196,6 @@ private fun CommentsUnavailable(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Комментарии", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                text = "Комментарии доступны только в оригинале на Хабре.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             if (showOpenButton) {
                 OutlinedButton(onClick = openOriginal) {
                     Text("Перейти к оригиналу")
