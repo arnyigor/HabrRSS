@@ -13,6 +13,7 @@ data class ReaderUiState(
     val feeds: List<FeedDescriptor> = emptyList(),
     val activeFeedId: String? = null,
     val items: List<FeedItem> = emptyList(),
+    val bookmarkedItems: List<FeedItem> = emptyList(),
     val visibleItems: List<FeedItem> = emptyList(),
     val hubFilters: List<FeedFilterChipState> = emptyList(),
     val tagFilters: List<FeedFilterChipState> = emptyList(),

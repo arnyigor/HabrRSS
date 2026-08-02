@@ -66,6 +66,7 @@ class FeedViewModel(
     val state: StateFlow<ReaderUiState> = mutableState
 
     private var feedJob: Job? = null
+    private var bookmarksJob: Job? = null
     private var localStateJob: Job? = null
     private var isLoadingNextPage = false
     private var pagingSource: FeedPagingSource? = null
@@ -130,6 +131,7 @@ class FeedViewModel(
             )
         }
         observeFeed(activeFeedId)
+        observeBookmarks()
         observeLocalFavorites()
         resetPager(activeFeedId)
         refresh()
@@ -158,6 +160,15 @@ class FeedViewModel(
                             ?: state.selectedArticleBookmarked,
                     )
                 }
+            }
+        }
+    }
+
+    private fun observeBookmarks() {
+        if (bookmarksJob != null) return
+        bookmarksJob = viewModelScope.launch {
+            repository.observeBookmarks().collect { bookmarkedItems ->
+                updateState { it.copy(bookmarkedItems = bookmarkedItems) }
             }
         }
     }
@@ -298,7 +309,8 @@ class FeedViewModel(
         val current = mutableState.value
         val baseFeedId = current.feeds.firstOrNull { it.kind != FeedKind.Custom }?.id
         val activeFeed = current.feeds.firstOrNull { it.id == current.activeFeedId }
-        val switchedToBaseFeed = activeFeed?.kind == FeedKind.Custom && baseFeedId != null
+        val switchedToBaseFeed = current.selectedDestination != ReaderDestination.Bookmarks &&
+            activeFeed?.kind == FeedKind.Custom && baseFeedId != null
         if (switchedToBaseFeed) {
             observeFeed(baseFeedId)
             resetPager(baseFeedId)
@@ -539,7 +551,7 @@ class FeedViewModel(
 
     private fun computeVisibleItems(state: ReaderUiState): List<FeedItem> {
         val sectionItems = when (state.selectedDestination) {
-            ReaderDestination.Bookmarks -> state.items.filter { it.isBookmarked }
+            ReaderDestination.Bookmarks -> state.bookmarkedItems
             ReaderDestination.Search -> state.items
             ReaderDestination.Feed,
             ReaderDestination.Sources,
@@ -549,11 +561,13 @@ class FeedViewModel(
             .map { it.trim() }
             .filter { it.isNotBlank() }
         return sectionItems
+            .asSequence()
             .filter { item -> !state.showUnreadOnly || !item.isRead }
             .filter { item -> state.selectedHubId == null || item.hubs.any { it.id == state.selectedHubId } }
             .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
             .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
             .distinctBy { it.articleIdentityKey() }
+            .toList()
             .let { filtered ->
                 when (state.feedSortMode) {
                     FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: Long.MIN_VALUE }
@@ -566,8 +580,9 @@ class FeedViewModel(
 
     private fun ReaderUiState.withFilterChips(visibleItems: List<FeedItem>): ReaderUiState {
         val activeFeed = feeds.firstOrNull { it.id == activeFeedId }
+        val filterBaseItems = if (selectedDestination == ReaderDestination.Bookmarks) bookmarkedItems else items
         val customHubChips = feeds
-            .filter { it.kind == FeedKind.Custom }
+            .filter { selectedDestination != ReaderDestination.Bookmarks && it.kind == FeedKind.Custom }
             .map { feed ->
                 FeedFilterChipState(
                     id = feed.id,
@@ -582,18 +597,18 @@ class FeedViewModel(
             FeedFilterChipState(
                 id = id,
                 title = selectedHubTitle ?: hubTitle(id),
-                count = visibleItems.size.takeIf { it > 0 } ?: items.count { item -> item.hubs.any { it.id == id } },
+                count = visibleItems.size.takeIf { it > 0 } ?: filterBaseItems.count { item -> item.hubs.any { it.id == id } },
                 favorite = id in favoriteHubIds,
                 selected = true,
             )
         }
         val favoriteHubChips = favoriteHubIds.mapNotNull { id ->
-            val title = favoriteHubTitles[id] ?: items.hubTitle(id) ?: return@mapNotNull null
+            val title = favoriteHubTitles[id] ?: filterBaseItems.hubTitle(id) ?: items.hubTitle(id) ?: return@mapNotNull null
             if (title.looksLikeGeneratedId()) return@mapNotNull null
             FeedFilterChipState(
                 id = id,
                 title = title,
-                count = items.count { item -> item.hubs.any { it.id == id } },
+                count = filterBaseItems.count { item -> item.hubs.any { it.id == id } },
                 favorite = true,
                 selected = id == selectedHubId,
             )
@@ -601,24 +616,28 @@ class FeedViewModel(
         val hubChips = (listOfNotNull(selectedHubChip) + customHubChips + favoriteHubChips)
             .distinctBy { it.id }
 
-        val tagSourceItems = if (selectedHubId != null || activeFeed?.kind == FeedKind.Custom) visibleItems else emptyList()
+        val tagSourceItems = if (selectedDestination == ReaderDestination.Bookmarks || selectedHubId != null || activeFeed?.kind == FeedKind.Custom) {
+            visibleItems
+        } else {
+            emptyList()
+        }
         val tagCounts = tagSourceItems.tagCounts()
         val selectedTagChip = selectedTagId?.let { id ->
             FeedFilterChipState(
                 id = id,
                 title = selectedTagTitle ?: tagTitle(id),
-                count = visibleItems.size.takeIf { it > 0 } ?: items.count { item -> item.tags.any { it.id == id } },
+                count = visibleItems.size.takeIf { it > 0 } ?: filterBaseItems.count { item -> item.tags.any { it.id == id } },
                 favorite = id in favoriteTagIds,
                 selected = true,
             )
         }
         val favoriteTagChips = favoriteTagIds.mapNotNull { id ->
-            val title = favoriteTagTitles[id] ?: items.tagTitle(id) ?: return@mapNotNull null
+            val title = favoriteTagTitles[id] ?: filterBaseItems.tagTitle(id) ?: items.tagTitle(id) ?: return@mapNotNull null
             if (title.looksLikeGeneratedId()) return@mapNotNull null
             FeedFilterChipState(
                 id = id,
                 title = title,
-                count = tagCounts[id] ?: items.count { item -> item.tags.any { it.id == id } },
+                count = tagCounts[id] ?: filterBaseItems.count { item -> item.tags.any { it.id == id } },
                 favorite = true,
                 selected = id == selectedTagId,
             )
