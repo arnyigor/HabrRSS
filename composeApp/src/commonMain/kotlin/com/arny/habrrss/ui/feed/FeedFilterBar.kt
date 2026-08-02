@@ -50,9 +50,15 @@ internal fun FeedFilterBar(
             Hub(selectedId, title)
         }
     }
-    val favoriteHubs = remember(selectedHub, state.favoriteHubs) {
-        (listOfNotNull(selectedHub) + state.favoriteHubs.map { (id, title) -> Hub(id, title) })
+    val hubs = remember(selectedHub, state.favoriteHubs, state.favoriteHubIds, state.items) {
+        val all = (listOfNotNull(selectedHub) +
+            state.favoriteHubs.map { (id, title) -> Hub(id, title) } +
+            state.items.flatMap { it.hubs })
             .distinctBy { it.id }
+            .filterNot { it.title.trim().matches(Regex("-?\\d+")) }
+        val active = all.filter { it.id == state.selectedHubId }
+        val favorite = all.filter { it.id in state.favoriteHubIds && it.id != state.selectedHubId }
+        active + favorite + all.filterNot { it.id in state.favoriteHubIds || it.id == state.selectedHubId }
     }
     val tags = remember(state.items, state.favoriteTagIds, state.favoriteTags, state.favoriteTagTitles, state.selectedTagId) {
         val selectedTag = state.selectedTagId?.let { selectedId ->
@@ -92,23 +98,24 @@ internal fun FeedFilterBar(
         ) {
             CollapsibleSectionHeader(
                 title = "Фильтры",
-                summary = buildFilterSummary(state, favoriteHubs.size, tags.size),
+                summary = buildFilterSummary(state, hubs.size, tags.size),
                 expanded = filtersExpanded,
                 onClick = { filtersExpanded = !filtersExpanded },
             )
             if (filtersExpanded) {
-                if (favoriteHubs.isNotEmpty()) {
-                    SectionLabel(if (state.selectedHubId != null) "Хабы · выбранный поток выделен" else "Избранные хабы")
+                if (hubs.isNotEmpty()) {
+                    SectionLabel(if (state.selectedHubId != null) "Хабы · выбранный хаб выделен" else "Хабы")
                     ChipRow {
                         FeedFilterChip(
                             title = "Все хабы",
                             selected = state.selectedHubId == null,
                             onClick = { onHubSelected(null) },
                         )
-                        favoriteHubs.forEach { hub ->
+                        hubs.forEach { hub ->
                             FeedFilterChip(
                                 title = buildString {
                                     if (hub.id == state.selectedHubId) append("✓ ")
+                                    if (hub.id in state.favoriteHubIds) append("★ ")
                                     append(hub.title)
                                     val count = state.items.count { item -> item.hubs.any { it.id == hub.id } }
                                     if (count > 0) append(" ($count)")
@@ -158,11 +165,11 @@ internal fun FeedFilterBar(
 
 private fun buildFilterSummary(
     state: ReaderUiState,
-    favoriteHubCount: Int,
+    hubCount: Int,
     tagCount: Int,
 ): String = buildString {
     append("${state.visibleItems.size} статей")
-    if (favoriteHubCount > 0) append(" · $favoriteHubCount избранных хабов")
+    if (hubCount > 0) append(" · $hubCount хабов")
     if (tagCount > 0) append(" · $tagCount тегов")
     if (state.activeFilterCount > 0) append(" · фильтров: ${state.activeFilterCount}")
 }
