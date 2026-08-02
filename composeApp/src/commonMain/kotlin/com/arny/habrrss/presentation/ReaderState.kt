@@ -14,12 +14,16 @@ data class ReaderUiState(
     val activeFeedId: String? = null,
     val items: List<FeedItem> = emptyList(),
     val visibleItems: List<FeedItem> = emptyList(),
+    val hubFilters: List<FeedFilterChipState> = emptyList(),
+    val tagFilters: List<FeedFilterChipState> = emptyList(),
     val selectedArticleId: String? = null,
     val selectedArticleBookmarked: Boolean = false,
     val article: ArticleContent? = null,
     val isArticleOpen: Boolean = false,
     val selectedHubId: String? = null,
+    val selectedHubTitle: String? = null,
     val selectedTagId: String? = null,
+    val selectedTagTitle: String? = null,
     val selectedPublicationSection: HabrPublicationSection = HabrPublicationSection.Articles,
     val favoriteHubIds: Set<String> = emptySet(),
     val favoriteTagIds: Set<String> = emptySet(),
@@ -110,6 +114,14 @@ data class ReaderUiState(
             CachePolicy.RefreshInBackground -> "refresh-in-background"
         }
 }
+
+data class FeedFilterChipState(
+    val id: String,
+    val title: String,
+    val count: Int,
+    val favorite: Boolean,
+    val selected: Boolean,
+)
 
 private data class HubTitle(val id: String, val title: String)
 

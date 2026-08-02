@@ -33,8 +33,8 @@ sealed interface FeedIntent {
     data class SelectDestination(val destination: ReaderDestination) : FeedIntent
     data class SelectArticle(val articleId: String) : FeedIntent
     data object CloseArticle : FeedIntent
-    data class SelectHub(val hubId: String?) : FeedIntent
-    data class SelectTag(val tagId: String?) : FeedIntent
+    data class SelectHub(val hubId: String?, val title: String? = null) : FeedIntent
+    data class SelectTag(val tagId: String?, val title: String? = null) : FeedIntent
     data class ToggleFavoriteTag(val tagId: String) : FeedIntent
     data class ToggleFavoriteHub(val hubId: String) : FeedIntent
     data class SelectPublicationSection(val section: HabrPublicationSection) : FeedIntent
@@ -90,8 +90,8 @@ class FeedViewModel(
             is FeedIntent.SelectDestination -> selectDestination(intent.destination)
             is FeedIntent.SelectArticle -> selectArticle(intent.articleId)
             FeedIntent.CloseArticle -> closeArticle()
-            is FeedIntent.SelectHub -> selectHub(intent.hubId)
-            is FeedIntent.SelectTag -> selectTag(intent.tagId)
+            is FeedIntent.SelectHub -> selectHub(intent.hubId, intent.title)
+            is FeedIntent.SelectTag -> selectTag(intent.tagId, intent.title)
             is FeedIntent.ToggleFavoriteTag -> toggleFavoriteTag(intent.tagId)
             is FeedIntent.ToggleFavoriteHub -> toggleFavoriteHub(intent.hubId)
             is FeedIntent.SelectPublicationSection -> selectPublicationSection(intent.section)
@@ -217,7 +217,9 @@ class FeedViewModel(
                     article = null,
                     isArticleOpen = false,
                     selectedHubId = null,
+                    selectedHubTitle = null,
                     selectedTagId = null,
+                    selectedTagTitle = null,
                     searchQuery = "",
                     selectedPublicationSection = state.feeds.firstOrNull { feed -> feed.id == feedId }
                         ?.kind
@@ -292,7 +294,7 @@ class FeedViewModel(
         updateState { it.copy(isArticleOpen = false, selectedArticleId = null, article = null) }
     }
 
-    fun selectHub(hubId: String?) {
+    fun selectHub(hubId: String?, title: String? = null) {
         val current = mutableState.value
         val baseFeedId = current.feeds.firstOrNull { it.kind != FeedKind.Custom }?.id
         val activeFeed = current.feeds.firstOrNull { it.id == current.activeFeedId }
@@ -301,10 +303,13 @@ class FeedViewModel(
             resetPager(baseFeedId)
         }
         updateState {
+            val selected = if (it.selectedHubId == hubId) null else hubId
             it.copy(
                 activeFeedId = if (activeFeed?.kind == FeedKind.Custom && baseFeedId != null) baseFeedId else it.activeFeedId,
-                selectedHubId = if (it.selectedHubId == hubId) null else hubId,
+                selectedHubId = selected,
+                selectedHubTitle = selected?.let { id -> title ?: current.hubTitle(id) },
                 selectedTagId = null,
+                selectedTagTitle = null,
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
@@ -313,11 +318,15 @@ class FeedViewModel(
         refreshIfCurrentFeedIsEmpty()
     }
 
-    fun selectTag(tagId: String?) {
+    fun selectTag(tagId: String?, title: String? = null) {
+        val current = mutableState.value
         updateState {
+            val selected = if (it.selectedTagId == tagId) null else tagId
             it.copy(
                 selectedHubId = null,
-                selectedTagId = if (it.selectedTagId == tagId) null else tagId,
+                selectedHubTitle = null,
+                selectedTagId = selected,
+                selectedTagTitle = selected?.let { id -> title ?: current.tagTitle(id) },
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
@@ -350,7 +359,9 @@ class FeedViewModel(
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
                 selectedHubId = null,
+                selectedHubTitle = null,
                 selectedTagId = null,
+                selectedTagTitle = null,
                 searchQuery = "",
             )
         }
@@ -370,7 +381,9 @@ class FeedViewModel(
         updateState {
             it.copy(
                 selectedHubId = null,
+                selectedHubTitle = null,
                 selectedTagId = null,
+                selectedTagTitle = null,
                 searchQuery = "",
                 showUnreadOnly = false,
                 isArticleOpen = false,
@@ -515,7 +528,9 @@ class FeedViewModel(
     private inline fun updateState(transform: (ReaderUiState) -> ReaderUiState) {
         mutableState.update { current ->
             val next = transform(current)
-            next.copy(visibleItems = computeVisibleItems(next))
+            val visibleItems = computeVisibleItems(next)
+            next.copy(visibleItems = visibleItems)
+                .withFilterChips(visibleItems)
         }
     }
 
@@ -543,6 +558,84 @@ class FeedViewModel(
                     }
                 }
             }
+    }
+
+    private fun ReaderUiState.withFilterChips(visibleItems: List<FeedItem>): ReaderUiState {
+        val activeFeed = feeds.firstOrNull { it.id == activeFeedId }
+        val customHubChip = activeFeed
+            ?.takeIf { it.kind == FeedKind.Custom }
+            ?.let { feed ->
+                FeedFilterChipState(
+                    id = feed.id,
+                    title = feed.title,
+                    count = items.size,
+                    favorite = favoriteHubTitles.values.any { it.equals(feed.title, ignoreCase = true) },
+                    selected = selectedHubId == null,
+                )
+            }
+        val selectedHubChip = selectedHubId?.let { id ->
+            FeedFilterChipState(
+                id = id,
+                title = selectedHubTitle ?: hubTitle(id),
+                count = visibleItems.size.takeIf { it > 0 } ?: items.count { item -> item.hubs.any { it.id == id } },
+                favorite = id in favoriteHubIds,
+                selected = true,
+            )
+        }
+        val favoriteHubChips = favoriteHubIds.mapNotNull { id ->
+            val title = favoriteHubTitles[id] ?: items.hubTitle(id) ?: return@mapNotNull null
+            if (title.looksLikeGeneratedId()) return@mapNotNull null
+            FeedFilterChipState(
+                id = id,
+                title = title,
+                count = items.count { item -> item.hubs.any { it.id == id } },
+                favorite = true,
+                selected = id == selectedHubId,
+            )
+        }
+        val hubChips = (listOfNotNull(selectedHubChip, customHubChip) + favoriteHubChips)
+            .distinctBy { it.id }
+
+        val tagSourceItems = if (selectedHubId != null || activeFeed?.kind == FeedKind.Custom) visibleItems else emptyList()
+        val tagCounts = tagSourceItems.tagCounts()
+        val selectedTagChip = selectedTagId?.let { id ->
+            FeedFilterChipState(
+                id = id,
+                title = selectedTagTitle ?: tagTitle(id),
+                count = visibleItems.size.takeIf { it > 0 } ?: items.count { item -> item.tags.any { it.id == id } },
+                favorite = id in favoriteTagIds,
+                selected = true,
+            )
+        }
+        val favoriteTagChips = favoriteTagIds.mapNotNull { id ->
+            val title = favoriteTagTitles[id] ?: items.tagTitle(id) ?: return@mapNotNull null
+            if (title.looksLikeGeneratedId()) return@mapNotNull null
+            FeedFilterChipState(
+                id = id,
+                title = title,
+                count = tagCounts[id] ?: items.count { item -> item.tags.any { it.id == id } },
+                favorite = true,
+                selected = id == selectedTagId,
+            )
+        }
+        val contextTagChips = tagSourceItems.flatMap { it.tags }
+            .distinctBy { it.id }
+            .filterNot { it.title.looksLikeGeneratedId() }
+            .sortedByDescending { tagCounts[it.id] ?: 0 }
+            .take(MAX_CONTEXT_FILTER_CHIPS)
+            .map { tag ->
+                FeedFilterChipState(
+                    id = tag.id,
+                    title = tag.title,
+                    count = tagCounts[tag.id] ?: 0,
+                    favorite = tag.id in favoriteTagIds,
+                    selected = tag.id == selectedTagId,
+                )
+            }
+        val tagChips = (listOfNotNull(selectedTagChip) + favoriteTagChips + contextTagChips)
+            .distinctBy { it.id }
+
+        return copy(hubFilters = hubChips, tagFilters = tagChips)
     }
 
     private fun FeedItem.matchesSearchTerm(rawTerm: String): Boolean {
@@ -575,6 +668,38 @@ class FeedViewModel(
         private const val FIRST_APPEND_PAGE = 1
     }
 }
+
+private fun ReaderUiState.hubTitle(id: String): String = hubFilters.firstOrNull { it.id == id }?.title
+    ?: favoriteHubTitles[id]
+    ?: favoriteHubs.firstOrNull { it.first == id }?.second
+    ?: visibleItems.hubTitle(id)
+    ?: items.hubTitle(id)
+    ?: id.removePrefix("hub-")
+
+private fun ReaderUiState.tagTitle(id: String): String = tagFilters.firstOrNull { it.id == id }?.title
+    ?: favoriteTagTitles[id]
+    ?: favoriteTags.firstOrNull { it.first == id }?.second
+    ?: visibleItems.tagTitle(id)
+    ?: items.tagTitle(id)
+    ?: id.removePrefix("tag-")
+
+private fun List<FeedItem>.hubTitle(id: String): String? = asSequence()
+    .flatMap { it.hubs.asSequence() }
+    .firstOrNull { it.id == id }
+    ?.title
+
+private fun List<FeedItem>.tagTitle(id: String): String? = asSequence()
+    .flatMap { it.tags.asSequence() }
+    .firstOrNull { it.id == id }
+    ?.title
+
+private fun List<FeedItem>.tagCounts(): Map<String, Int> = flatMap { item -> item.tags.map { it.id } }
+    .groupingBy { it }
+    .eachCount()
+
+private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
+
+private const val MAX_CONTEXT_FILTER_CHIPS = 16
 
 private fun List<FeedDescriptor>.findHubFeed(slug: String): FeedDescriptor? = firstOrNull { feed ->
     feed.kind == FeedKind.Custom && feed.url.toHubSlug() == slug
