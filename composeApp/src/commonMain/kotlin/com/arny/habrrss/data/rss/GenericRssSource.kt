@@ -11,6 +11,7 @@ import com.arny.habrrss.domain.models.PageCursor
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
+import com.arny.habrrss.domain.util.toEpochMillis
 import com.fleeksoft.ksoup.Ksoup
 import com.fleeksoft.ksoup.nodes.Element
 import com.fleeksoft.ksoup.parser.Parser
@@ -65,6 +66,7 @@ class GenericRssSource(
             category.text().ifBlank { category.attr("term") }.trim().takeIf { it.isNotBlank() }
         }.distinct()
         val authorName = rssText("author") ?: selectFirst("author name")?.text()?.trim()
+        val publishedAt = rssText("pubDate") ?: rssText("published") ?: rssText("updated")
 
         return FeedItem(
             id = link.takeIf { it.isNotBlank() }?.let { "custom-${it.hashCode()}" } ?: "custom-${title.hashCode()}",
@@ -75,8 +77,8 @@ class GenericRssSource(
             url = link,
             imageUrl = descDoc.selectFirst("img")?.attr("src")?.takeIf { it.isNotBlank() },
             author = authorName?.let { Author(id = "author-${it.hashCode()}", displayName = it, profileUrl = null) },
-            publishedAt = rssText("pubDate") ?: rssText("published") ?: rssText("updated"),
-            publishedAtEpoch = null,
+            publishedAt = publishedAt,
+            publishedAtEpoch = publishedAt?.toEpochMillis(),
             tags = categories.map { Tag(id = "tag-${it.lowercase().hashCode()}", title = it) },
             hubs = emptyList<Hub>(),
             rating = null,

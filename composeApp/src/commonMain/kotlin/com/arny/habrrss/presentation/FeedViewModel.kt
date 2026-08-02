@@ -550,9 +550,10 @@ class FeedViewModel(
             .filter { item -> state.selectedHubId == null || item.hubs.any { it.id == state.selectedHubId } }
             .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
             .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
+            .distinctBy { it.articleIdentityKey() }
             .let { filtered ->
                 when (state.feedSortMode) {
-                    FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
+                    FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: Long.MIN_VALUE }
                     FeedSortMode.Rating -> filtered.sortedByDescending {
                         it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull() ?: 0
                     }
@@ -637,6 +638,16 @@ class FeedViewModel(
             .distinctBy { it.id }
 
         return copy(hubFilters = hubChips, tagFilters = tagChips)
+    }
+
+    private fun FeedItem.articleIdentityKey(): String {
+        val normalizedUrl = url
+            .trim()
+            .lowercase()
+            .substringBefore("#")
+            .substringBefore("?")
+            .trimEnd('/')
+        return normalizedUrl.ifBlank { title.trim().lowercase() }
     }
 
     private fun FeedItem.matchesSearchTerm(rawTerm: String): Boolean {

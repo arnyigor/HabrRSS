@@ -13,10 +13,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,13 +66,8 @@ internal fun FeedList(
     onLoadMore: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
-    var previousListStateKey by rememberSaveable { mutableStateOf(listStateKey) }
-
     LaunchedEffect(listStateKey) {
-        if (previousListStateKey != listStateKey) {
-            listState.scrollToItem(0)
-            previousListStateKey = listStateKey
-        }
+        listState.scrollToItem(0)
     }
 
     // Load more when reaching end of list. Keep it distinct to avoid repeated calls while

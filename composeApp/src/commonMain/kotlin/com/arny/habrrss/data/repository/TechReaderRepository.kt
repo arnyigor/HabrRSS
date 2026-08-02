@@ -124,7 +124,9 @@ class TechReaderRepository(
         feedDao.getArticleLocalStates(),
         feedDao.getFavoriteArticles(),
     ) { entities, localStates, favorites ->
-        entities.map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+        entities
+            .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+            .distinctBy { it.articleIdentityKey() }
     }.distinctUntilChanged()
 
     fun observeBookmarks(): Flow<List<FeedItem>> = combine(
@@ -132,7 +134,9 @@ class TechReaderRepository(
         feedDao.getArticleLocalStates(),
         feedDao.getFavoriteArticles(),
     ) { entities, localStates, favorites ->
-        entities.map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+        entities
+            .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+            .distinctBy { it.articleIdentityKey() }
     }.distinctUntilChanged()
 
     fun observeArticleItem(articleId: String): Flow<FeedItem?> = combine(
@@ -146,7 +150,9 @@ class TechReaderRepository(
     suspend fun getCachedFeed(feedId: String): List<FeedItem> {
         val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
         val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
-        return feedDao.getByFeedOnce(feedId).map { it.toDomain(json, localStates, favorites) }
+        return feedDao.getByFeedOnce(feedId)
+            .map { it.toDomain(json, localStates, favorites) }
+            .distinctBy { it.articleIdentityKey() }
     }
 
     suspend fun isBookmarked(articleId: String): Boolean =
@@ -564,6 +570,16 @@ private fun FeedItem.withLocalState(
     isRead = localStates[id]?.isRead == true,
     isBookmarked = id in favoriteArticleIds,
 )
+
+private fun FeedItem.articleIdentityKey(): String {
+    val normalizedUrl = url
+        .trim()
+        .lowercase()
+        .substringBefore("#")
+        .substringBefore("?")
+        .trimEnd('/')
+    return normalizedUrl.ifBlank { title.trim().lowercase() }
+}
 
 private fun List<ArticleLocalStateEntity>.byArticleId(): Map<String, ArticleLocalStateEntity> =
     associateBy { it.articleId }
