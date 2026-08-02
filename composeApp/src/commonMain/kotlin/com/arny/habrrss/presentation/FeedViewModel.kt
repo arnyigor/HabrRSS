@@ -253,9 +253,17 @@ class FeedViewModel(
         updateState { state ->
             state.copy(
                 selectedArticleId = articleId,
-                selectedArticleBookmarked = state.items.firstOrNull { it.id == articleId }?.isBookmarked ?: false,
+                selectedArticleBookmarked = state.items.firstOrNull { it.id == articleId }?.isBookmarked
+                    ?: state.bookmarkedItems.firstOrNull { it.id == articleId }?.isBookmarked
+                    ?: false,
                 isArticleOpen = true,
-                selectedDestination = ReaderDestination.Feed,
+                selectedDestination = when (state.selectedDestination) {
+                    ReaderDestination.Bookmarks,
+                    ReaderDestination.Search -> state.selectedDestination
+                    ReaderDestination.Feed,
+                    ReaderDestination.Sources,
+                    ReaderDestination.Settings -> ReaderDestination.Feed
+                },
             )
         }
     }
