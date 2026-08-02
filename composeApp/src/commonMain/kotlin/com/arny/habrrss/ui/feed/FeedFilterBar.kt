@@ -65,26 +65,24 @@ internal fun FeedFilterBar(
                 onClick = { filtersExpanded = !filtersExpanded },
             )
             if (filtersExpanded) {
-                if (hubs.isNotEmpty()) {
-                    val hubSelected = hubs.any { it.selected }
-                    SectionLabel(if (hubSelected) "Хабы · выбранный хаб выделен" else "Хабы")
-                    ChipRow {
+                val hubSelected = hubs.any { it.selected }
+                SectionLabel(if (hubSelected) "Хабы · выбранный хаб выделен" else "Хабы")
+                ChipRow {
+                    FeedFilterChip(
+                        title = "Все хабы",
+                        selected = !hubSelected,
+                        onClick = { onHubSelected(null) },
+                    )
+                    hubs.forEach { hub ->
                         FeedFilterChip(
-                            title = "Все хабы",
-                            selected = !hubSelected,
-                            onClick = { onHubSelected(null) },
+                            title = hub.label(prefix = null),
+                            selected = hub.selected,
+                            onClick = { onHubSelected(if (hub.selected && state.selectedHubId == null) null else hub.id) },
                         )
-                        hubs.forEach { hub ->
-                            FeedFilterChip(
-                                title = hub.label(prefix = null),
-                                selected = hub.selected,
-                                onClick = { onHubSelected(if (hub.selected && state.selectedHubId == null) null else hub.id) },
-                            )
-                        }
                     }
                 }
                 if (tags.isNotEmpty()) {
-                    SectionLabel(if (state.selectedTagId != null) "Теги · выбранный поток выделен" else "Теги")
+                    SectionLabel(if (state.selectedTagId != null) "Теги · выбранный тег выделен" else "Теги")
                     ChipRow {
                         FeedFilterChip(
                             title = "Все теги",
@@ -99,6 +97,13 @@ internal fun FeedFilterBar(
                             )
                         }
                     }
+                } else {
+                    Text(
+                        text = "Теги появятся после выбора хаба или добавления тегов в избранное.",
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             if (state.activeFilterCount > 0) {
