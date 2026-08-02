@@ -50,6 +50,8 @@ internal fun ArticleFooterSections(
             HorizontalDivider()
             CommentsSection(
                 comments = comments,
+                openOriginal = { validUrl?.let(actions::openUrl) },
+                showOpenButton = validUrl != null,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else if (isLoadingExtras) {
@@ -78,6 +80,8 @@ internal fun ArticleFooterSections(
 @Composable
 private fun CommentsSection(
     comments: List<CommentNode>,
+    openOriginal: () -> Unit,
+    showOpenButton: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val settings = FeedSettings.defaults()
@@ -85,11 +89,19 @@ private fun CommentsSection(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "Комментарии (${comments.sumOf { it.totalCount() }})",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Комментарии (${comments.sumOf { it.totalCount() }})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            if (showOpenButton) {
+                OutlinedButton(onClick = openOriginal) {
+                    Text("Перейти к оригиналу")
+                }
+            }
+        }
         comments.forEach { comment ->
             CommentItem(
                 comment = comment,
