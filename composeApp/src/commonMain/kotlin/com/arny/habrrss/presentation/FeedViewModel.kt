@@ -298,14 +298,15 @@ class FeedViewModel(
         val current = mutableState.value
         val baseFeedId = current.feeds.firstOrNull { it.kind != FeedKind.Custom }?.id
         val activeFeed = current.feeds.firstOrNull { it.id == current.activeFeedId }
-        if (activeFeed?.kind == FeedKind.Custom && baseFeedId != null) {
+        val switchedToBaseFeed = activeFeed?.kind == FeedKind.Custom && baseFeedId != null
+        if (switchedToBaseFeed) {
             observeFeed(baseFeedId)
             resetPager(baseFeedId)
         }
         updateState {
-            val selected = if (it.selectedHubId == hubId) null else hubId
+            val selected = if (hubId == null || it.selectedHubId == hubId) null else hubId
             it.copy(
-                activeFeedId = if (activeFeed?.kind == FeedKind.Custom && baseFeedId != null) baseFeedId else it.activeFeedId,
+                activeFeedId = if (switchedToBaseFeed) baseFeedId else it.activeFeedId,
                 selectedHubId = selected,
                 selectedHubTitle = selected?.let { id -> title ?: current.hubTitle(id) },
                 selectedTagId = null,
@@ -315,16 +316,18 @@ class FeedViewModel(
                 isArticleOpen = false,
             )
         }
-        refreshIfCurrentFeedIsEmpty()
+        if (switchedToBaseFeed) {
+            refresh()
+        } else {
+            refreshIfCurrentFeedIsEmpty()
+        }
     }
 
     fun selectTag(tagId: String?, title: String? = null) {
         val current = mutableState.value
         updateState {
-            val selected = if (it.selectedTagId == tagId) null else tagId
+            val selected = if (tagId == null || it.selectedTagId == tagId) null else tagId
             it.copy(
-                selectedHubId = null,
-                selectedHubTitle = null,
                 selectedTagId = selected,
                 selectedTagTitle = selected?.let { id -> title ?: current.tagTitle(id) },
                 selectedPublicationSection = HabrPublicationSection.Articles,
