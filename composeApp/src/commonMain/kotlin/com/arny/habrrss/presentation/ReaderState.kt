@@ -121,6 +121,7 @@ data class FeedFilterChipState(
     val count: Int,
     val favorite: Boolean,
     val selected: Boolean,
+    val feedId: String? = null,
 )
 
 private data class HubTitle(val id: String, val title: String)

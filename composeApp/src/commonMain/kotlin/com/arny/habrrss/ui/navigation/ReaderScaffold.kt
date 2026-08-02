@@ -404,6 +404,7 @@ private fun FeedRoute(
         isWide = isWide,
         state = state,
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
+        onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
         onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
         onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
         onArticleSelected = openArticle,
@@ -425,6 +426,7 @@ private fun BookmarksRoute(
         isWide = isWide,
         state = state,
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
+        onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
         onTagSelected = { viewModel.dispatch(FeedIntent.SelectTag(it)) },
         onClearFilters = { viewModel.dispatch(FeedIntent.ClearFilters) },
         onArticleSelected = openArticle,
@@ -463,8 +465,8 @@ private fun SourcesRoute(
         favoriteHubs = state.favoriteHubs,
         favoriteTags = state.favoriteTags,
         onFeedSelected = { feedId ->
-            viewModel.dispatch(FeedIntent.SelectFeed(feedId))
             navigateToFeed()
+            viewModel.dispatch(FeedIntent.SelectFeed(feedId))
         },
         onCustomFeedSaved = { id, title, url -> viewModel.dispatch(FeedIntent.SaveCustomFeed(id, title, url)) },
         onCustomFeedRemoved = { viewModel.dispatch(FeedIntent.RemoveCustomFeed(it)) },

@@ -36,6 +36,7 @@ import com.arny.habrrss.presentation.ReaderUiState
 internal fun FeedFilterBar(
     state: ReaderUiState,
     onHubSelected: (String?) -> Unit,
+    onFeedSelected: (String) -> Unit,
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
 ) {
@@ -77,7 +78,10 @@ internal fun FeedFilterBar(
                         FeedFilterChip(
                             title = hub.label(prefix = null),
                             selected = hub.selected,
-                            onClick = { onHubSelected(if (hub.selected && state.selectedHubId == null) null else hub.id) },
+                            onClick = {
+                                hub.feedId?.let(onFeedSelected)
+                                    ?: onHubSelected(if (hub.selected && state.selectedHubId == null) null else hub.id)
+                            },
                         )
                     }
                 }

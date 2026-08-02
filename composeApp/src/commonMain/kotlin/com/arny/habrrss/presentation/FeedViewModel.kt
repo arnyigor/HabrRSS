@@ -562,15 +562,16 @@ class FeedViewModel(
 
     private fun ReaderUiState.withFilterChips(visibleItems: List<FeedItem>): ReaderUiState {
         val activeFeed = feeds.firstOrNull { it.id == activeFeedId }
-        val customHubChip = activeFeed
-            ?.takeIf { it.kind == FeedKind.Custom }
-            ?.let { feed ->
+        val customHubChips = feeds
+            .filter { it.kind == FeedKind.Custom }
+            .map { feed ->
                 FeedFilterChipState(
                     id = feed.id,
                     title = feed.title,
-                    count = items.size,
-                    favorite = favoriteHubTitles.values.any { it.equals(feed.title, ignoreCase = true) },
-                    selected = selectedHubId == null,
+                    count = if (feed.id == activeFeedId) items.size else 0,
+                    favorite = true,
+                    selected = feed.id == activeFeedId && selectedHubId == null,
+                    feedId = feed.id,
                 )
             }
         val selectedHubChip = selectedHubId?.let { id ->
@@ -593,7 +594,7 @@ class FeedViewModel(
                 selected = id == selectedHubId,
             )
         }
-        val hubChips = (listOfNotNull(selectedHubChip, customHubChip) + favoriteHubChips)
+        val hubChips = (listOfNotNull(selectedHubChip) + customHubChips + favoriteHubChips)
             .distinctBy { it.id }
 
         val tagSourceItems = if (selectedHubId != null || activeFeed?.kind == FeedKind.Custom) visibleItems else emptyList()
