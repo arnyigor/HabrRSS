@@ -4,6 +4,7 @@ import com.arny.habrrss.data.remote.habr.HabrApiClient
 import com.arny.habrrss.data.remote.habr.HabrArticlesRequest
 import com.arny.habrrss.data.remote.habr.HabrPeriod
 import com.arny.habrrss.data.remote.habr.HabrSearchOrder
+import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.remote.habr.mapper.HabrArticleMapper
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.CommentNode
@@ -51,6 +52,8 @@ class HabrApiSource(
                 updatedAt = Clock.System.now().toEpochMilliseconds().toString(),
             )
         } catch (error: CancellationException) {
+            throw error
+        } catch (error: HabrRemoteException) {
             throw error
         } catch (error: Exception) {
             throw SourceUnavailableException("Habr API source is unavailable: ${error.message}")

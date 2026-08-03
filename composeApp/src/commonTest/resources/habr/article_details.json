@@ -1,0 +1,26 @@
+{
+  "id": "815309",
+  "timePublished": "2026-08-03T10:15:00+03:00",
+  "titleHtml": "<b>Kotlin Multiplatform</b>",
+  "leadData": {
+    "textHtml": "<p>Preview text</p>",
+    "imageUrl": "https://habrastorage.org/image.png"
+  },
+  "textHtml": "<p>Full article paragraph</p><pre><code>val answer = 42</code></pre>",
+  "author": {
+    "id": "1",
+    "alias": "author",
+    "fullname": "Author Name"
+  },
+  "statistics": {
+    "commentsCount": 5,
+    "score": 10
+  },
+  "hubs": [
+    {
+      "id": "hub-1",
+      "alias": "kotlin",
+      "title": "Kotlin"
+    }
+  ]
+}

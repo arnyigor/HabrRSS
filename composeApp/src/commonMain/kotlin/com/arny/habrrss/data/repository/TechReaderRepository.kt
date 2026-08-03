@@ -8,6 +8,7 @@ import com.arny.habrrss.data.database.FeedDao
 import com.arny.habrrss.data.database.FeedItemEntity
 import com.arny.habrrss.data.preferences.CustomFeedPreference
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
+import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.data.rss.HtmlArticleParser
 import com.arny.habrrss.domain.models.ArticleBlock
@@ -430,6 +431,7 @@ class TechReaderRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (primaryError: Exception) {
+            if (primaryError.isNonFallbackHabrError()) throw primaryError
             fallbackSourcesByFeedId[feedId].orEmpty()
                 .filterNot { it == primary }
                 .firstNotNullOfOrNull { fallbackSource ->
@@ -444,6 +446,11 @@ class TechReaderRepository(
                 ?: throw primaryError
         }
     }
+
+    private fun Exception.isNonFallbackHabrError(): Boolean =
+        this is HabrRemoteException.BadRequest ||
+            this is HabrRemoteException.NotFound ||
+            this is HabrRemoteException.Validation
 
     private suspend fun List<FeedItem>.applyPersistedLocalState(): List<FeedItem> {
         val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
