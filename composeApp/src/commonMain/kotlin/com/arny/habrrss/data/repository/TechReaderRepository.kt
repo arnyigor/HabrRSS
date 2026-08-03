@@ -48,6 +48,7 @@ class TechReaderRepository(
     private val json = Json { ignoreUnknownKeys = true }
     private var cachedFeeds: List<FeedDescriptor> = emptyList()
     private var sourceByFeedId: Map<String, FeedSource> = emptyMap()
+    private var fallbackSourcesByFeedId: Map<String, List<FeedSource>> = emptyMap()
     private val externalArticles = mutableMapOf<String, ArticleContent>()
     // Track next cursor per feed for pagination
     private val feedCursorsFlow = MutableStateFlow<Map<String, PageCursor?>>(emptyMap())
@@ -55,14 +56,20 @@ class TechReaderRepository(
     suspend fun getFeeds(forceRefresh: Boolean = false): List<FeedDescriptor> {
         if (cachedFeeds.isEmpty() || forceRefresh) {
             val sources = listOf(primarySource) + secondarySources
-            val fixedFeeds = sources.flatMap { it.getFeeds() }
+            val descriptorsBySource = sources.map { source -> source to source.getFeeds() }
+            val fixedFeeds = descriptorsBySource.flatMap { (_, feeds) -> feeds }
             val customFeeds = preferencesRepository?.customFeeds()?.first().orEmpty().map { it.toDescriptor() }
             customRssSource?.setFeeds(customFeeds)
-            cachedFeeds = fixedFeeds + customFeeds
+            cachedFeeds = (fixedFeeds + customFeeds).distinctBy { it.id }
             sourceByFeedId = buildMap {
-                sources.forEach { source -> source.getFeeds().forEach { put(it.id, source) } }
+                descriptorsBySource.forEach { (source, feeds) ->
+                    feeds.forEach { feed -> if (feed.id !in this) put(feed.id, source) }
+                }
                 customFeeds.forEach { feed -> customRssSource?.let { put(feed.id, it) } }
             }
+            fallbackSourcesByFeedId = descriptorsBySource
+                .flatMap { (source, feeds) -> feeds.map { feed -> feed.id to source } }
+                .groupBy(keySelector = { it.first }, valueTransform = { it.second })
         }
         return cachedFeeds
     }
@@ -71,7 +78,7 @@ class TechReaderRepository(
         // Reset cursor for fresh load
         feedCursorsFlow.update { it + (feedId to null) }
 
-        val page = sourceFor(feedId).getItems(feedId, page = null)
+        val page = loadFeedPageWithFallback(feedId, page = null)
         val items = page.items.applyPersistedLocalState()
         val entities = page.items.changedRemoteEntities()
         if (entities.isNotEmpty()) {
@@ -96,7 +103,7 @@ class TechReaderRepository(
     suspend fun loadNextPage(feedId: String): FeedPage? {
         val cursor = feedCursorsFlow.value[feedId] ?: return null
 
-        val page = sourceFor(feedId).getItems(feedId, page = cursor)
+        val page = loadFeedPageWithFallback(feedId, page = cursor)
         val items = page.items.applyPersistedLocalState()
         val entities = page.items.changedRemoteEntities()
         if (entities.isNotEmpty()) {
@@ -414,6 +421,28 @@ class TechReaderRepository(
     private suspend fun sourceFor(feedId: String): FeedSource {
         if (sourceByFeedId.isEmpty()) getFeeds(forceRefresh = true)
         return sourceByFeedId[feedId] ?: primarySource
+    }
+
+    private suspend fun loadFeedPageWithFallback(feedId: String, page: PageCursor?): FeedPage {
+        val primary = sourceFor(feedId)
+        return try {
+            primary.getItems(feedId, page)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (primaryError: Exception) {
+            fallbackSourcesByFeedId[feedId].orEmpty()
+                .filterNot { it == primary }
+                .firstNotNullOfOrNull { fallbackSource ->
+                    try {
+                        fallbackSource.getItems(feedId, page)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                ?: throw primaryError
+        }
     }
 
     private suspend fun List<FeedItem>.applyPersistedLocalState(): List<FeedItem> {

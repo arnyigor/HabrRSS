@@ -5,11 +5,15 @@ import com.arny.habrrss.data.article.HabrWebReaderSource
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedKind
-import com.arny.habrrss.domain.source.SourceUnavailableException
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SourceAdaptersTest {
@@ -33,14 +37,13 @@ class SourceAdaptersTest {
     }
 
     @Test
-    fun habrApiSourceIsExplicitlyUnavailableForMvp() = runTest {
-        val source = HabrApiSource()
+    fun habrApiSourceExposesLatestFeedAndUsesRemotePage() = runTest {
+        val source = HabrApiSource(mockJsonClient("""{"pagesCount":1,"publicationIds":[],"publicationRefs":{}}"""))
 
-        assertTrue(source.getFeeds().isEmpty())
+        assertEquals(1, source.getFeeds().size)
+        assertEquals(HabrApiSource.FeedIds.All, source.getFeeds().single().id)
         assertTrue(source.getComments("article").isEmpty())
-        assertFailsWith<SourceUnavailableException> {
-            source.getItems("any", page = null)
-        }
+        assertTrue(source.getItems(HabrApiSource.FeedIds.All, page = null).items.isEmpty())
     }
 
     @Test
@@ -52,4 +55,14 @@ class SourceAdaptersTest {
         assertTrue(article.blocks.isNotEmpty())
         assertTrue(article.sourceNotice.contains("fallback"))
     }
+
+    private fun mockJsonClient(body: String): HttpClient = HttpClient(
+        MockEngine {
+            respond(
+                content = body,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        },
+    )
 }
