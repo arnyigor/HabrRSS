@@ -1,11 +1,5 @@
 package com.arny.habrrss.ui.navigation
 
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,8 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
-import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.ui.NavDisplay
 import com.arny.habrrss.navigation.Screen
 import com.arny.habrrss.presentation.ArticleIntent
 import com.arny.habrrss.presentation.ArticleUiState
@@ -330,79 +322,24 @@ internal fun AppNavHost(
     navigateToFeed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    NavDisplay(
-        backStack = backStack,
-        modifier = modifier.fillMaxSize(),
-        onBack = onBack,
-        transitionSpec = {
-            (slideInHorizontally(
-                initialOffsetX = { width -> width },
-                animationSpec = tween(300),
-            ) + fadeIn(animationSpec = tween(180)))
-                .togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> -width },
-                        animationSpec = tween(300),
-                    ) + fadeOut(animationSpec = tween(180)),
-                )
-        },
-        popTransitionSpec = {
-            (slideInHorizontally(
-                initialOffsetX = { width -> -width },
-                animationSpec = tween(300),
-            ) + fadeIn(animationSpec = tween(180)))
-                .togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> width },
-                        animationSpec = tween(300),
-                    ) + fadeOut(animationSpec = tween(180)),
-                )
-        },
-        predictivePopTransitionSpec = {
-            (slideInHorizontally(
-                initialOffsetX = { width -> -width },
-                animationSpec = tween(300),
-            ) + fadeIn(animationSpec = tween(180)))
-                .togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> width },
-                        animationSpec = tween(300),
-                    ) + fadeOut(animationSpec = tween(180)),
-                )
-        },
-        entryProvider = entryProvider<NavKey> {
-            entry<Screen.Feed> {
-                FeedRoute(state, viewModel, openArticle, isWide)
-            }
-
-            entry<Screen.Bookmarks> {
-                BookmarksRoute(state, viewModel, openArticle, isWide)
-            }
-
-            entry<Screen.Search> {
-                SearchRoute(state, viewModel, openArticle)
-            }
-
-            entry<Screen.Sources> {
-                SourcesRoute(state, viewModel, navigateToFeed)
-            }
-
-            entry<Screen.Settings> {
-                SettingsRoute(state, viewModel)
-            }
-
-            entry<Screen.Article> { route ->
-                ArticleRoute(
-                    route = route,
-                    state = state,
-                    viewModel = viewModel,
-                    articleViewModel = articleViewModel,
-                    onBack = onBack,
-                    navigateToFeed = navigateToFeed,
-                )
-            }
-        },
-    )
+    val route = backStack.lastOrNull() as? Screen ?: Screen.Feed
+    Box(modifier.fillMaxSize()) {
+        when (route) {
+            Screen.Feed -> FeedRoute(state, viewModel, openArticle, isWide)
+            Screen.Bookmarks -> BookmarksRoute(state, viewModel, openArticle, isWide)
+            Screen.Search -> SearchRoute(state, viewModel, openArticle)
+            Screen.Sources -> SourcesRoute(state, viewModel, navigateToFeed)
+            Screen.Settings -> SettingsRoute(state, viewModel)
+            is Screen.Article -> ArticleRoute(
+                route = route,
+                state = state,
+                viewModel = viewModel,
+                articleViewModel = articleViewModel,
+                onBack = onBack,
+                navigateToFeed = navigateToFeed,
+            )
+        }
+    }
 }
 
 @Composable
