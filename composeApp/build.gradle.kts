@@ -64,9 +64,20 @@ kotlin {
             // Room with version catalog (using bundled SQLite for native support)
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.sqlite.bundled)
-            // Navigation 3 for KMP
-            implementation(libs.androidx.navigation3.runtime)
-            implementation(libs.androidx.navigation3.ui)
+            // Navigation 3 for KMP. Exclude AndroidX Compose JVM stubs from desktop runtime:
+            // they shadow JetBrains Compose classes and crash hotRunJvm with InlineClassHelper stubs.
+            implementation("androidx.navigation3:navigation3-runtime:${libs.versions.androidx.navigation3.get()}") {
+                exclude(group = "androidx.compose.animation")
+                exclude(group = "androidx.compose.foundation")
+                exclude(group = "androidx.compose.runtime")
+                exclude(group = "androidx.compose.ui")
+            }
+            implementation("androidx.navigation3:navigation3-ui:${libs.versions.androidx.navigation3.get()}") {
+                exclude(group = "androidx.compose.animation")
+                exclude(group = "androidx.compose.foundation")
+                exclude(group = "androidx.compose.runtime")
+                exclude(group = "androidx.compose.ui")
+            }
             implementation(libs.cash.paging.common)
             // Koin for DI
             implementation(libs.koin.core)
