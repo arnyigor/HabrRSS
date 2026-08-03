@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 sealed interface FeedIntent {
     data object Refresh : FeedIntent
     data object LoadMore : FeedIntent
+    data object DismissError : FeedIntent
     data class SelectFeed(val feedId: String) : FeedIntent
     data class SelectDestination(val destination: ReaderDestination) : FeedIntent
     data class SelectArticle(val articleId: String) : FeedIntent
@@ -70,6 +71,7 @@ class FeedViewModel(
         when (intent) {
             FeedIntent.Refresh -> refresh()
             FeedIntent.LoadMore -> loadMoreItems()
+            FeedIntent.DismissError -> dismissError()
             is FeedIntent.SelectFeed -> selectFeed(intent.feedId)
             is FeedIntent.SelectDestination -> selectDestination(intent.destination)
             is FeedIntent.SelectArticle -> selectArticle(intent.articleId)
@@ -101,6 +103,7 @@ class FeedViewModel(
         updateState {
             it.copy(
                 settings = settings,
+                feedCardMode = settings.toFeedCardMode(),
                 feeds = feeds,
                 activeFeedId = activeFeedId,
                 selectedPublicationSection = feeds.firstOrNull { feed -> feed.id == activeFeedId }
@@ -390,8 +393,16 @@ class FeedViewModel(
         updateState { it.copy(showUnreadOnly = showUnreadOnly, isArticleOpen = false) }
     }
 
+    fun dismissError() {
+        updateState { it.copy(errorMessage = null) }
+    }
+
     fun setFeedCardMode(mode: FeedCardMode) {
-        updateState { it.copy(feedCardMode = mode) }
+        updateState { it.copy(feedCardMode = mode, settings = it.settings.copy(feedCardMode = mode.name)) }
+        viewModelScope.launch {
+            preferencesRepository.setFeedCardMode(mode.name)
+            preferencesRepository.setCompactCards(mode == FeedCardMode.CompactText)
+        }
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
@@ -782,6 +793,10 @@ private fun List<FeedItem>.tagCounts(): Map<String, Int> = flatMap { item -> ite
 private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
 
 private const val MAX_CONTEXT_FILTER_CHIPS = 16
+
+private fun FeedSettings.toFeedCardMode(): FeedCardMode =
+    FeedCardMode.entries.firstOrNull { it.name == feedCardMode }
+        ?: if (compactCards) FeedCardMode.CompactText else FeedCardMode.Comfortable
 
 private fun List<FeedDescriptor>.findHubFeed(slug: String): FeedDescriptor? {
     val normalizedSlug = slug.toHubSlug()

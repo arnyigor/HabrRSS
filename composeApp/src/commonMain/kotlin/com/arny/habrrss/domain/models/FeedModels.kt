@@ -160,6 +160,7 @@ data class FeedSettings(
     val cacheSizeMb: Int,
     val autoRefreshMinutes: Int,
     val openLinksInsideApp: Boolean,
+    val feedCardMode: String = "Comfortable",
 ) {
     companion object {
         fun defaults(): FeedSettings = FeedSettings(
@@ -171,6 +172,7 @@ data class FeedSettings(
             cacheSizeMb = 256,
             autoRefreshMinutes = 30,
             openLinksInsideApp = false,
+            feedCardMode = "Comfortable",
         )
     }
 }

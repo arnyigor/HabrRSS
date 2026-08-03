@@ -1,15 +1,27 @@
 package com.arny.habrrss.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,37 +30,69 @@ import androidx.compose.ui.unit.dp
 internal val WideLayoutMinWidth = 840.dp
 
 @Composable
-internal fun ErrorBanner(
+fun ErrorBanner(
     message: String,
     onRetry: (() -> Unit)? = null,
+    onDismiss: () -> Unit,
+    isVisible: Boolean = true,
+    modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(8.dp),
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = slideInVertically { fullHeight -> -fullHeight } + fadeIn(),
+        exit = slideOutVertically { fullHeight -> -fullHeight } + fadeOut(),
+        modifier = modifier.padding(horizontal = 8.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (onRetry != null) {
-                Button(
-                    onClick = onRetry,
-                    modifier = Modifier.align(Alignment.End),
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Повторить")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 3,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Скрыть")
+                    }
+                }
+
+                if (onRetry != null) {
+                    TextButton(
+                        onClick = onRetry,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Повторить")
+                    }
                 }
             }
         }
     }
 }
+
 
 @Composable
 internal fun EmptyState(

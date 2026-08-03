@@ -121,13 +121,21 @@ internal fun FeedCard(
                     }
                 } else if (mode != FeedCardMode.CompactText && item.summary.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = item.summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = if (mode == FeedCardMode.Magazine) 4 else 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (mode == FeedCardMode.Magazine) {
+                        Text(
+                            text = item.summary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = item.summary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(10.dp))
