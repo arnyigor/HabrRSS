@@ -133,7 +133,7 @@ private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d
 
 enum class ReaderDestination(val label: String) {
     Feed("Лента"),
-    Sources("RSS"),
+    Sources("Хабы"),
     Bookmarks("Сохр."),
     Search("Поиск"),
     Settings("Ещё"),

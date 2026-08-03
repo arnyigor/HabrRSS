@@ -6,8 +6,10 @@ import com.arny.habrrss.data.database.FavoriteHubEntity
 import com.arny.habrrss.data.database.FavoriteTagEntity
 import com.arny.habrrss.data.database.FeedDao
 import com.arny.habrrss.data.database.FeedItemEntity
+import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.CustomFeedPreference
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
+import com.arny.habrrss.data.remote.habr.HabrPeriod
 import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.data.rss.HtmlArticleParser
@@ -60,13 +62,19 @@ class TechReaderRepository(
             val descriptorsBySource = sources.map { source -> source to source.getFeeds() }
             val fixedFeeds = descriptorsBySource.flatMap { (_, feeds) -> feeds }
             val customFeeds = preferencesRepository?.customFeeds()?.first().orEmpty().map { it.toDescriptor() }
-            customRssSource?.setFeeds(customFeeds)
+            val rssCustomFeeds = customFeeds.filterNot { it.isHabrApiFeed() }
+            customRssSource?.setFeeds(rssCustomFeeds)
             cachedFeeds = (fixedFeeds + customFeeds).distinctBy { it.id }
             sourceByFeedId = buildMap {
                 descriptorsBySource.forEach { (source, feeds) ->
                     feeds.forEach { feed -> if (feed.id !in this) put(feed.id, source) }
                 }
-                customFeeds.forEach { feed -> customRssSource?.let { put(feed.id, it) } }
+                customFeeds.forEach { feed ->
+                    when {
+                        feed.isHabrApiFeed() -> put(feed.id, primarySource)
+                        customRssSource != null -> put(feed.id, customRssSource)
+                    }
+                }
             }
             fallbackSourcesByFeedId = descriptorsBySource
                 .flatMap { (source, feeds) -> feeds.map { feed -> feed.id to source } }
@@ -245,12 +253,15 @@ class TechReaderRepository(
 
     suspend fun upsertCustomFeed(id: String?, title: String, url: String) {
         val hub = url.normalizedHubSlug()
-        val feedUrl = hub.toHabrHubRssUrl()
+        val feedId = HabrApiSource.FeedIds.hub(hub)
         val feed = CustomFeedPreference(
-            id = id ?: "custom-hub-${hub.hashCode()}",
+            id = feedId,
             title = title.ifBlank { hub },
-            url = feedUrl,
+            url = hub.toHabrHubUrl(),
         )
+        if (id != null && id != feedId) {
+            preferencesRepository?.removeCustomFeed(id)
+        }
         preferencesRepository?.upsertCustomFeed(feed)
         cachedFeeds = emptyList()
         getFeeds(forceRefresh = true)
@@ -258,15 +269,31 @@ class TechReaderRepository(
 
     suspend fun removeCustomFeed(id: String) {
         preferencesRepository?.removeCustomFeed(id)
+        if (id.startsWith(HabrApiSource.FeedIds.HubPrefix)) {
+            val slug = id.removePrefix(HabrApiSource.FeedIds.HubPrefix)
+                .substringBefore(':')
+                .toHubSlug()
+            preferencesRepository?.customFeeds()?.first()
+                .orEmpty()
+                .filter { it.url.normalizedHubSlug() == slug || it.id == "custom-hub-${slug.hashCode()}" }
+                .forEach { preferencesRepository?.removeCustomFeed(it.id) }
+        }
         cachedFeeds = emptyList()
         getFeeds(forceRefresh = true)
     }
 
     private suspend fun removeCustomHubFeed(slug: String) {
-        val targetUrl = slug.toHabrHubRssUrl()
+        val normalized = slug.normalizedHubSlug()
+        val targetUrl = normalized.toHabrHubUrl()
+        val targetFeedId = HabrApiSource.FeedIds.hub(normalized)
         preferencesRepository?.customFeeds()?.first()
             .orEmpty()
-            .filter { it.url == targetUrl || it.id == "custom-hub-${slug.hashCode()}" }
+            .filter { preference ->
+                preference.id == targetFeedId ||
+                    preference.url == targetUrl ||
+                    preference.url.normalizedHubSlug() == normalized ||
+                    preference.id == "custom-hub-${normalized.hashCode()}"
+            }
             .forEach { preferencesRepository?.removeCustomFeed(it.id) }
         cachedFeeds = emptyList()
     }
@@ -310,7 +337,7 @@ class TechReaderRepository(
     }
 
     suspend fun toggleFavoriteHub(hubId: String, title: String? = null) {
-        val slug = title?.toHubSlug() ?: hubId.removePrefix("hub-").toHubSlug()
+        val slug = hubId.removePrefix("hub-").toHubSlug()
         if (feedDao.getFavoriteHubsOnce().any { it.hubId == hubId }) {
             feedDao.deleteFavoriteHub(hubId)
             removeCustomHubFeed(slug)
@@ -458,29 +485,40 @@ class TechReaderRepository(
         return map { item -> item.withLocalState(localStates, favorites) }
     }
 
-    private fun CustomFeedPreference.toDescriptor(): FeedDescriptor = FeedDescriptor(
-        id = id,
-        title = title,
-        sourceTitle = "Custom RSS",
-        url = url,
-        description = "Пользовательская RSS-лента",
-        kind = FeedKind.Custom,
-    )
+    private fun CustomFeedPreference.toDescriptor(): FeedDescriptor {
+        val hub = url.normalizedHubSlug()
+        val feedId = if (id.startsWith(HabrApiSource.FeedIds.HubPrefix)) id else HabrApiSource.FeedIds.hub(hub)
+        return FeedDescriptor(
+            id = feedId,
+            title = title.ifBlank { hub },
+            sourceTitle = "Habr API",
+            url = hub.toHabrHubUrl(),
+            description = "Статьи хаба через /kek/v2/articles?hub=$hub&period=weekly",
+            kind = FeedKind.Hub,
+        )
+    }
 
     private fun String.normalizedHubSlug(): String = toHubSlug()
 
-    private fun String.toHubSlug(): String = trim()
-        .replace("&amp;", "&")
-        .trimEnd('/')
-        .substringAfterLast("/hub/", this)
-        .substringBefore('/')
-        .substringBefore('?')
-        .trim()
-        .replace(Regex("\\s+"), "_")
-        .lowercase()
+    private fun String.toHubSlug(): String {
+        val value = trim().replace("&amp;", "&").trimEnd('/')
+        val slug = when {
+            "/hubs/" in value -> value.substringAfterLast("/hubs/")
+            "/hub/" in value -> value.substringAfterLast("/hub/")
+            else -> value
+        }
+        return slug
+            .substringBefore('/')
+            .substringBefore('?')
+            .trim()
+            .replace(Regex("\\s+"), "_")
+            .lowercase()
+    }
 
-    private fun String.toHabrHubRssUrl(): String =
-        "https://habr.com/ru/rss/hub/$this/?limit=100&with_hubs=true&with_tags=true"
+    private fun FeedDescriptor.isHabrApiFeed(): Boolean = id.startsWith(HabrApiSource.FeedIds.HubPrefix)
+
+    private fun String.toHabrHubUrl(): String =
+        "https://habr.com/ru/hubs/$this/"
 
     private fun buildArticleContent(entity: FeedItemEntity): ArticleContent {
         val blocks = entity.descriptionHtml?.let { HtmlArticleParser.parse(it, entity.url) }

@@ -83,11 +83,11 @@ class TechReaderRepositoryTest {
         repository.getFeeds()
         repository.toggleFavoriteHub(hubId = "android", title = "Android")
 
-        assertTrue(repository.getFeeds(forceRefresh = true).any { it.url.contains("/rss/hub/android/") })
+        assertTrue(repository.getFeeds(forceRefresh = true).any { it.id == "habr-hub:android:weekly" && it.url.contains("/hubs/android/") })
 
         repository.toggleFavoriteHub(hubId = "android", title = "Android")
 
-        assertFalse(repository.getFeeds(forceRefresh = true).any { it.url.contains("/rss/hub/android/") })
+        assertFalse(repository.getFeeds(forceRefresh = true).any { it.id == "habr-hub:android:weekly" })
     }
 
     @Test
@@ -102,13 +102,29 @@ class TechReaderRepositoryTest {
         )
 
         repository.upsertCustomFeed(id = null, title = "", url = " android ")
-        val customFeed = repository.getFeeds(forceRefresh = true).first { it.id.startsWith("custom-hub-") }
+        val customFeed = repository.getFeeds(forceRefresh = true).first { it.id == "habr-hub:android:weekly" }
 
         assertEquals("android", customFeed.title)
-        assertEquals(
-            "https://habr.com/ru/rss/hub/android/?limit=100&with_hubs=true&with_tags=true",
-            customFeed.url,
+        assertEquals("https://habr.com/ru/hubs/android/", customFeed.url)
+        assertEquals(FeedKind.Hub, customFeed.kind)
+    }
+
+    @Test
+    fun editingHubFeedChangesApiFeedIdAndRemovesOldHub() = runTest {
+        val preferencesRepository = DefaultPreferencesRepository()
+        val repository = TechReaderRepository(
+            primarySource = FakeFeedSource(),
+            feedDao = InMemoryFeedDao(),
+            customRssSource = GenericRssSource(emptyList()),
+            preferencesRepository = preferencesRepository,
         )
+
+        repository.upsertCustomFeed(id = null, title = "Android", url = "android")
+        repository.upsertCustomFeed(id = "habr-hub:android:weekly", title = "Kotlin", url = "kotlin")
+        val feeds = repository.getFeeds(forceRefresh = true)
+
+        assertFalse(feeds.any { it.id == "habr-hub:android:weekly" })
+        assertTrue(feeds.any { it.id == "habr-hub:kotlin:weekly" && it.title == "Kotlin" })
     }
 
     @Test

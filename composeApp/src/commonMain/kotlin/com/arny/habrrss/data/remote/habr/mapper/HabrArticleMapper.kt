@@ -22,13 +22,14 @@ class HabrArticleMapper {
 
     fun toFeedItem(dto: HabrArticleDto, feedId: String): FeedItem {
         val articleId = dto.id.toHabrArticleId()
+        val feedScopedArticleId = articleId.scopedToFeed(feedId)
         val url = dto.id.toHabrArticleUrl()
         val previewHtml = dto.leadData?.textHtml
         val summary = previewHtml.toPlainText()
         val title = dto.titleHtml.toPlainText().ifBlank { "Без заголовка" }
 
         return FeedItem(
-            id = articleId,
+            id = feedScopedArticleId,
             feedId = feedId,
             title = title,
             summary = summary,
@@ -106,6 +107,9 @@ class HabrArticleMapper {
 
     private fun String.toHabrArticleUrl(): String =
         "https://habr.com/ru/articles/${removePrefix("habr-")}/"
+
+    private fun String.scopedToFeed(feedId: String): String =
+        if (feedId == "habr-all") this else "$feedId:$this"
 
     private fun String.stableMetadataId(prefix: String): String {
         val normalized = trim().replace(Regex("\\s+"), " ").lowercase()

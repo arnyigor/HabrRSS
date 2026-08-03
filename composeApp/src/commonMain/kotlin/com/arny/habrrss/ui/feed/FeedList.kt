@@ -72,15 +72,20 @@ internal fun FeedList(
 
     // Load more when reaching end of list. Keep it distinct to avoid repeated calls while
     // LazyColumn is remeasuring the same tail items.
-    LaunchedEffect(listState, canLoadMore) {
+    LaunchedEffect(listState, canLoadMore, items.size) {
         if (!canLoadMore) return@LaunchedEffect
         snapshotFlow {
             val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
             val totalItems = listState.layoutInfo.totalItemsCount
-            lastVisibleItem != null && lastVisibleItem.index >= totalItems - 4
+            val lastIndex = lastVisibleItem?.index ?: -1
+            EndOfListSignal(
+                lastVisibleIndex = lastIndex,
+                totalItems = totalItems,
+                shouldLoad = lastIndex >= totalItems - 4,
+            )
         }
             .distinctUntilChanged()
-            .filter { it }
+            .filter { it.shouldLoad }
             .collect { onLoadMore() }
     }
 
@@ -137,3 +142,9 @@ internal fun FeedList(
         }
     }
 }
+
+private data class EndOfListSignal(
+    val lastVisibleIndex: Int,
+    val totalItems: Int,
+    val shouldLoad: Boolean,
+)

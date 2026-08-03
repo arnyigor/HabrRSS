@@ -39,7 +39,15 @@ class HabrArchiveImporterTest {
         assertEquals(2, state.pagesProcessed)
         assertEquals(3, state.receivedCount)
         assertEquals(3, state.uniqueCount)
-        assertEquals(setOf("habr-1", "habr-2", "habr-3", "habr-100"), items.map { it.id }.toSet())
+        assertEquals(
+            setOf(
+                "$sourceKey:habr-1",
+                "$sourceKey:habr-2",
+                "$sourceKey:habr-3",
+                "$sourceKey:habr-100",
+            ),
+            items.map { it.id }.toSet(),
+        )
         assertEquals(3, urls.size)
         assertTrue(urls[0].contains("period=alltime") && urls[0].contains("page=1"))
         assertTrue(urls[1].contains("period=alltime") && urls[1].contains("page=2"))

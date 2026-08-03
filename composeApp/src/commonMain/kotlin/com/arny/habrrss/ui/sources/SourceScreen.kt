@@ -1,6 +1,5 @@
 package com.arny.habrrss.ui.sources
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,7 +45,7 @@ internal fun SourceScreen(
     var editingId by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
     var hub by remember { mutableStateOf("") }
-    val hubFeeds = feeds.filter { it.kind == FeedKind.Custom }
+    val hubFeeds = feeds.filter { it.kind == FeedKind.Hub || it.kind == FeedKind.Custom }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -61,8 +60,8 @@ internal fun SourceScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Хабы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Введите только slug хаба на Хабре, например: android, kotlin, machine_learning. " +
-                            "RSS-ссылка будет собрана автоматически.",
+                        "Введите только slug хаба на Хабре, например: android_dev, kotlin, machine_learning. " +
+                            "Лента будет загружаться через Habr API по 100 статей на страницу.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     OutlinedTextField(
@@ -153,9 +152,7 @@ internal fun SourceScreen(
         }
         items(hubFeeds, key = { it.id }) { feed ->
             ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onFeedSelected(feed.id) },
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = if (feed.id == activeFeedId) {
@@ -171,6 +168,9 @@ internal fun SourceScreen(
                     Text(feed.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onFeedSelected(feed.id) }) {
+                            Text("Открыть")
+                        }
                         OutlinedButton(
                             onClick = {
                                 editingId = feed.id
@@ -190,9 +190,15 @@ internal fun SourceScreen(
     }
 }
 
-private fun String.toHubSlug(): String = trim()
-    .trimEnd('/')
-    .substringAfterLast("/hub/", this)
-    .substringBefore('/')
-    .substringBefore('?')
-    .trim()
+private fun String.toHubSlug(): String {
+    val value = trim().trimEnd('/')
+    val slug = when {
+        "/hubs/" in value -> value.substringAfterLast("/hubs/")
+        "/hub/" in value -> value.substringAfterLast("/hub/")
+        else -> value
+    }
+    return slug
+        .substringBefore('/')
+        .substringBefore('?')
+        .trim()
+}
