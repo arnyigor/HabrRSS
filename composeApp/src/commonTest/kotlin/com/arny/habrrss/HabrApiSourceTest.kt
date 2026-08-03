@@ -5,6 +5,7 @@ import com.arny.habrrss.data.remote.habr.HabrApiClient
 import com.arny.habrrss.data.remote.habr.HabrArticlesRequest
 import com.arny.habrrss.data.remote.habr.HabrPeriod
 import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
+import com.arny.habrrss.domain.models.PageCursor
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -34,6 +35,21 @@ class HabrApiSourceTest {
         assertTrue(url.contains("fl=ru"))
         assertTrue(url.contains("hl=ru"))
         assertTrue(url.contains("page=3"))
+        assertTrue(url.contains("perPage=100"))
+    }
+
+    @Test
+    fun requestsHubArchiveWithAllTimePeriod() = runTest {
+        val urls = mutableListOf<String>()
+        val source = HabrApiSource(mockJsonClient(articlesPageJson(), urls))
+
+        source.getItems(HabrApiSource.FeedIds.hub("android_dev"), page = PageCursor("4"))
+
+        val url = urls.single()
+        assertTrue(url.contains("hub=android_dev"))
+        assertTrue(url.contains("sort=date"))
+        assertTrue(url.contains("period=alltime"))
+        assertTrue(url.contains("page=4"))
         assertTrue(url.contains("perPage=100"))
     }
 

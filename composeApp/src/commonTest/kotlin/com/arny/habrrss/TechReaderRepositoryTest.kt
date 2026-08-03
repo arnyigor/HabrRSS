@@ -1,5 +1,6 @@
 package com.arny.habrrss
 
+import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.database.InMemoryFeedDao
 import com.arny.habrrss.data.preferences.DefaultPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
@@ -70,6 +71,25 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun allCachedFeedContainsLoadedArticlesFromAnySource() = runTest {
+        val source = MutableRemoteFeedSource(
+            listOf(
+                remoteItem(id = "one", title = "One"),
+                remoteItem(id = "two", title = "Two"),
+            ),
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed("feed")
+        val cached = repository.getCachedFeed(HabrApiSource.FeedIds.AllCached)
+
+        assertEquals(setOf("one", "two"), cached.map { it.id }.toSet())
+    }
+
+    @Test
     fun favoriteHubAddsAndRemovesHubFeed() = runTest {
         val preferencesRepository = DefaultPreferencesRepository()
         val customRssSource = GenericRssSource(emptyList())
@@ -83,11 +103,11 @@ class TechReaderRepositoryTest {
         repository.getFeeds()
         repository.toggleFavoriteHub(hubId = "android", title = "Android")
 
-        assertTrue(repository.getFeeds(forceRefresh = true).any { it.id == "habr-hub:android:weekly" && it.url.contains("/hubs/android/") })
+        assertTrue(repository.getFeeds(forceRefresh = true).any { it.id == "habr-hub:android:alltime" && it.url.contains("/hubs/android/") })
 
         repository.toggleFavoriteHub(hubId = "android", title = "Android")
 
-        assertFalse(repository.getFeeds(forceRefresh = true).any { it.id == "habr-hub:android:weekly" })
+        assertFalse(repository.getFeeds(forceRefresh = true).any { it.id == "habr-hub:android:alltime" })
     }
 
     @Test
@@ -102,7 +122,7 @@ class TechReaderRepositoryTest {
         )
 
         repository.upsertCustomFeed(id = null, title = "", url = " android ")
-        val customFeed = repository.getFeeds(forceRefresh = true).first { it.id == "habr-hub:android:weekly" }
+        val customFeed = repository.getFeeds(forceRefresh = true).first { it.id == "habr-hub:android:alltime" }
 
         assertEquals("android", customFeed.title)
         assertEquals("https://habr.com/ru/hubs/android/", customFeed.url)
@@ -120,11 +140,11 @@ class TechReaderRepositoryTest {
         )
 
         repository.upsertCustomFeed(id = null, title = "Android", url = "android")
-        repository.upsertCustomFeed(id = "habr-hub:android:weekly", title = "Kotlin", url = "kotlin")
+        repository.upsertCustomFeed(id = "habr-hub:android:alltime", title = "Kotlin", url = "kotlin")
         val feeds = repository.getFeeds(forceRefresh = true)
 
-        assertFalse(feeds.any { it.id == "habr-hub:android:weekly" })
-        assertTrue(feeds.any { it.id == "habr-hub:kotlin:weekly" && it.title == "Kotlin" })
+        assertFalse(feeds.any { it.id == "habr-hub:android:alltime" })
+        assertTrue(feeds.any { it.id == "habr-hub:kotlin:alltime" && it.title == "Kotlin" })
     }
 
     @Test

@@ -28,6 +28,12 @@ class FileBackedFeedDao(
     override suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity> =
         items.byFeed(feedId)
 
+    override fun getAllCached(): Flow<List<FeedItemEntity>> =
+        version.map { items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt } }
+
+    override suspend fun getAllCachedOnce(): List<FeedItemEntity> =
+        items.sortedByDescending { it.publishedAtEpoch ?: it.fetchedAt }
+
     override suspend fun getById(id: String): FeedItemEntity? =
         items.firstOrNull { it.id == id }
 

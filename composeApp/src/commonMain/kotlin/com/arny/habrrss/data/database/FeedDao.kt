@@ -17,6 +17,12 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity>
 
+    @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    fun getAllCached(): Flow<List<FeedItemEntity>>
+
+    @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    suspend fun getAllCachedOnce(): List<FeedItemEntity>
+
     @Query("SELECT * FROM feed_items WHERE id = :id")
     suspend fun getById(id: String): FeedItemEntity?
 

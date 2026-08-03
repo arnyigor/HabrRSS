@@ -26,10 +26,10 @@ class HabrApiSource(
     private val feeds = listOf(
         FeedDescriptor(
             id = FeedIds.All,
-            title = "Все статьи",
+            title = "Новые",
             sourceTitle = "Habr API",
             url = "https://habr.com/ru/articles/",
-            description = "Свежие статьи Хабра через /kek/v2 с RSS fallback",
+            description = "Свежие статьи Хабра через /kek/v2",
             kind = FeedKind.All,
         ),
     )
@@ -74,7 +74,7 @@ class HabrApiSource(
             feedId.startsWith(FeedIds.HubPrefix) -> {
                 val parts = feedId.removePrefix(FeedIds.HubPrefix).split(':')
                 val alias = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return null
-                val period = parts.getOrNull(1)?.toPeriodOrNull() ?: HabrPeriod.Weekly
+                val period = parts.getOrNull(1)?.toPeriodOrNull() ?: HabrPeriod.AllTime
                 HabrArticlesRequest.Hub(alias = alias, period = period, page = pageNumber)
             }
             feedId.startsWith(FeedIds.CompanyPrefix) -> {
@@ -106,12 +106,13 @@ class HabrApiSource(
 
     object FeedIds {
         const val All = "habr-all"
+        const val AllCached = "local-all"
         const val HubPrefix = "habr-hub:"
         const val CompanyPrefix = "habr-company:"
         const val AuthorPrefix = "habr-author:"
         const val SearchPrefix = "habr-search:"
 
-        fun hub(alias: String, period: HabrPeriod = HabrPeriod.Weekly): String =
+        fun hub(alias: String, period: HabrPeriod = HabrPeriod.AllTime): String =
             "$HubPrefix$alias:${period.wireValue}"
 
         fun company(alias: String): String = "$CompanyPrefix$alias"

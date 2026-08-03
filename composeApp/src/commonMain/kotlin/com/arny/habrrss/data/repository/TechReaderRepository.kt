@@ -6,6 +6,7 @@ import com.arny.habrrss.data.database.FavoriteHubEntity
 import com.arny.habrrss.data.database.FavoriteTagEntity
 import com.arny.habrrss.data.database.FeedDao
 import com.arny.habrrss.data.database.FeedItemEntity
+import com.arny.habrrss.data.database.SyncStateEntity
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.CustomFeedPreference
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
@@ -60,7 +61,7 @@ class TechReaderRepository(
         if (cachedFeeds.isEmpty() || forceRefresh) {
             val sources = listOf(primarySource) + secondarySources
             val descriptorsBySource = sources.map { source -> source to source.getFeeds() }
-            val fixedFeeds = descriptorsBySource.flatMap { (_, feeds) -> feeds }
+            val fixedFeeds = descriptorsBySource.flatMap { (_, feeds) -> feeds } + allCachedDescriptor()
             val customFeeds = preferencesRepository?.customFeeds()?.first().orEmpty().map { it.toDescriptor() }
             val rssCustomFeeds = customFeeds.filterNot { it.isHabrApiFeed() }
             customRssSource?.setFeeds(rssCustomFeeds)
@@ -84,9 +85,16 @@ class TechReaderRepository(
     }
 
     suspend fun refreshFeed(feedId: String): FeedPage {
-        // Reset cursor for fresh load
-        feedCursorsFlow.update { it + (feedId to null) }
+        if (feedId == HabrApiSource.FeedIds.AllCached) {
+            return FeedPage(
+                items = getCachedFeed(feedId),
+                nextCursor = null,
+                fromCache = true,
+                updatedAt = null,
+            )
+        }
 
+        val previousCursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor()
         val page = loadFeedPageWithFallback(feedId, page = null)
         val items = page.items.applyPersistedLocalState()
         val entities = page.items.changedRemoteEntities()
@@ -94,12 +102,18 @@ class TechReaderRepository(
             feedDao.insertAll(entities)
         }
 
-        // Store cursor for next page
-        feedCursorsFlow.update { it + (feedId to page.nextCursor) }
+        val nextCursor = maxCursor(previousCursor, page.nextCursor)
+        feedCursorsFlow.update { it + (feedId to nextCursor) }
+        savePagingState(
+            sourceKey = feedId,
+            nextCursor = nextCursor,
+            pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1),
+            completed = nextCursor == null,
+        )
 
         return FeedPage(
             items = items,
-            nextCursor = page.nextCursor,
+            nextCursor = nextCursor,
             fromCache = false,
             updatedAt = page.updatedAt,
         )
@@ -110,7 +124,8 @@ class TechReaderRepository(
      * Returns null if there's no more pages (cursor is null).
      */
     suspend fun loadNextPage(feedId: String): FeedPage? {
-        val cursor = feedCursorsFlow.value[feedId] ?: return null
+        if (feedId == HabrApiSource.FeedIds.AllCached) return null
+        val cursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor() ?: return null
 
         val page = loadFeedPageWithFallback(feedId, page = cursor)
         val items = page.items.applyPersistedLocalState()
@@ -121,6 +136,12 @@ class TechReaderRepository(
 
         // Update cursor for next page
         feedCursorsFlow.update { it + (feedId to page.nextCursor) }
+        savePagingState(
+            sourceKey = feedId,
+            nextCursor = page.nextCursor,
+            pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1) ?: cursor.value.toIntOrNull(),
+            completed = page.nextCursor == null,
+        )
 
         return FeedPage(
             items = items,
@@ -133,10 +154,11 @@ class TechReaderRepository(
     /**
      * Check if more pages are available for a feed
      */
-    fun hasMorePages(feedId: String): Boolean = feedCursorsFlow.value[feedId] != null
+    fun hasMorePages(feedId: String): Boolean =
+        feedId != HabrApiSource.FeedIds.AllCached && feedCursorsFlow.value[feedId] != null
 
     fun observeFeed(feedId: String): Flow<List<FeedItem>> = combine(
-        feedDao.getByFeed(feedId),
+        if (feedId == HabrApiSource.FeedIds.AllCached) feedDao.getAllCached() else feedDao.getByFeed(feedId),
         feedDao.getArticleLocalStates(),
         feedDao.getFavoriteArticles(),
     ) { entities, localStates, favorites ->
@@ -166,8 +188,12 @@ class TechReaderRepository(
     suspend fun getCachedFeed(feedId: String): List<FeedItem> {
         val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
         val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
-        return feedDao.getByFeedOnce(feedId)
-            .map { it.toDomain(json, localStates, favorites) }
+        val entities = if (feedId == HabrApiSource.FeedIds.AllCached) {
+            feedDao.getAllCachedOnce()
+        } else {
+            feedDao.getByFeedOnce(feedId)
+        }
+        return entities.map { it.toDomain(json, localStates, favorites) }
             .distinctBy { it.articleIdentityKey() }
     }
 
@@ -358,6 +384,56 @@ class TechReaderRepository(
             ?: throw SourceUnavailableException("No feed descriptors are available.")
     }
 
+    private fun allCachedDescriptor(): FeedDescriptor = FeedDescriptor(
+        id = HabrApiSource.FeedIds.AllCached,
+        title = "Все загруженные",
+        sourceTitle = "Room",
+        url = "local://all-loaded",
+        description = "Все уникальные статьи, уже загруженные в локальную базу",
+        kind = FeedKind.All,
+    )
+
+    private fun maxCursor(first: PageCursor?, second: PageCursor?): PageCursor? {
+        val firstPage = first?.value?.toIntOrNull()
+        val secondPage = second?.value?.toIntOrNull()
+        return when {
+            firstPage == null -> second
+            secondPage == null -> first
+            firstPage >= secondPage -> first
+            else -> second
+        }
+    }
+
+    private suspend fun savePagingState(
+        sourceKey: String,
+        nextCursor: PageCursor?,
+        pagesCount: Int?,
+        completed: Boolean,
+    ) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val current = feedDao.getSyncState(sourceKey)
+        feedDao.upsertSyncState(
+            SyncStateEntity(
+                sourceKey = sourceKey,
+                mode = "paging",
+                status = if (completed) "completed" else "ready",
+                nextPage = nextCursor?.value?.toIntOrNull() ?: ((current?.nextPage ?: 1).coerceAtLeast(1)),
+                pagesCountSnapshot = pagesCount ?: current?.pagesCountSnapshot,
+                pagesProcessed = current?.pagesProcessed ?: 0,
+                receivedCount = current?.receivedCount ?: 0,
+                uniqueCount = current?.uniqueCount ?: 0,
+                failedPage = null,
+                errorCode = null,
+                startedAtEpochMillis = current?.startedAtEpochMillis ?: now,
+                updatedAtEpochMillis = now,
+                completedAtEpochMillis = if (completed) now else null,
+            ),
+        )
+    }
+
+    private fun SyncStateEntity.toPageCursor(): PageCursor? =
+        if (status == "completed") null else PageCursor(nextPage.coerceAtLeast(1).toString())
+
     private suspend fun List<FeedItem>.changedRemoteEntities(): List<FeedItemEntity> {
         val now = Clock.System.now().toEpochMilliseconds()
         return mapNotNull { item ->
@@ -487,13 +563,13 @@ class TechReaderRepository(
 
     private fun CustomFeedPreference.toDescriptor(): FeedDescriptor {
         val hub = url.normalizedHubSlug()
-        val feedId = if (id.startsWith(HabrApiSource.FeedIds.HubPrefix)) id else HabrApiSource.FeedIds.hub(hub)
+        val feedId = HabrApiSource.FeedIds.hub(hub, HabrPeriod.AllTime)
         return FeedDescriptor(
             id = feedId,
             title = title.ifBlank { hub },
             sourceTitle = "Habr API",
             url = hub.toHabrHubUrl(),
-            description = "Статьи хаба через /kek/v2/articles?hub=$hub&period=weekly",
+            description = "Архив хаба через /kek/v2/articles?hub=$hub&period=alltime",
             kind = FeedKind.Hub,
         )
     }

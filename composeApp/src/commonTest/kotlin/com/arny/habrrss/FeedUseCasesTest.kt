@@ -22,7 +22,7 @@ class FeedUseCasesTest {
         ToggleBookmarkUseCase(repository)("kotlin")
         val cached = repository.getCachedFeed("feed").first { it.id == "kotlin" }
 
-        assertEquals("feed", feeds.single().id)
+        assertTrue(feeds.any { it.id == "feed" })
         assertEquals(2, page.items.size)
         assertEquals("Full article from content source.", article.sourceNotice)
         assertTrue(cached.isBookmarked)

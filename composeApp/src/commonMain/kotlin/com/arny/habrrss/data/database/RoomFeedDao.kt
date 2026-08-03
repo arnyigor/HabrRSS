@@ -14,6 +14,12 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity> =
         feedDao.getByFeedOnce(feedId)
 
+    override fun getAllCached(): Flow<List<FeedItemEntity>> =
+        feedDao.getAllCached()
+
+    override suspend fun getAllCachedOnce(): List<FeedItemEntity> =
+        feedDao.getAllCachedOnce()
+
     override suspend fun getById(id: String): FeedItemEntity? =
         feedDao.getById(id)
 
