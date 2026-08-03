@@ -50,8 +50,6 @@ class HabrApiSource(
                 nextCursor = request.nextCursor(response.pagesCount),
                 fromCache = false,
                 updatedAt = Clock.System.now().toEpochMilliseconds().toString(),
-                loadedPage = request.page,
-                pagesCount = response.pagesCount,
             )
         } catch (error: CancellationException) {
             throw error

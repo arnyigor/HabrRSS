@@ -83,8 +83,6 @@ class ReaderInteractor(
                         ?: HabrPublicationSection.Articles,
                     feedLoading = false,
                     canLoadMore = hasMorePages(activeFeedId),
-                    feedPagesLoaded = page.loadedPage,
-                    feedPagesCount = page.pagesCount,
                     errorMessage = null,
                 )
             }
@@ -101,8 +99,6 @@ class ReaderInteractor(
                     feeds = feeds,
                     items = mergeSelection(page.items),
                     canLoadMore = hasMorePages(feedId),
-                    feedPagesLoaded = page.loadedPage,
-                    feedPagesCount = page.pagesCount,
                     errorMessage = null,
                 )
             }
@@ -129,8 +125,6 @@ class ReaderInteractor(
                         ?: HabrPublicationSection.Articles,
                     selectedDestination = ReaderDestination.Feed,
                     canLoadMore = hasMorePages(feedId),
-                    feedPagesLoaded = page.loadedPage,
-                    feedPagesCount = page.pagesCount,
                     errorMessage = null,
                 )
             }
@@ -154,8 +148,6 @@ class ReaderInteractor(
                     state.copy(
                         items = merged,
                         canLoadMore = hasMorePages(feedId),
-                        feedPagesLoaded = nextPage.loadedPage,
-                        feedPagesCount = nextPage.pagesCount,
                         errorMessage = null,
                     )
                 }
