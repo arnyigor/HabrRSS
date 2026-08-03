@@ -38,6 +38,8 @@ data class ReaderUiState(
     val articleLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val canLoadMore: Boolean = false,
+    val feedPagesLoaded: Int? = null,
+    val feedPagesCount: Int? = null,
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),
 ) {

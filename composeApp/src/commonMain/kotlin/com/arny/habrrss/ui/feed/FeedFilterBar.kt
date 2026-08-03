@@ -145,6 +145,9 @@ private fun buildFilterSummary(
     tagCount: Int,
 ): String = buildString {
     append("${state.visibleItems.size} статей")
+    if (state.feedPagesCount != null) {
+        append(" · стр. ${state.feedPagesLoaded ?: 0}/${state.feedPagesCount}")
+    }
     if (hubCount > 0) append(" · $hubCount хабов")
     if (tagCount > 0) append(" · $tagCount тегов")
     if (state.activeFilterCount > 0) append(" · фильтров: ${state.activeFilterCount}")

@@ -90,6 +90,36 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun habrFeedPaginationUsesPagesCountAndLoadsUntilLastPage() = runTest {
+        val dao = InMemoryFeedDao()
+        val repository = TechReaderRepository(
+            primarySource = PagedRemoteFeedSource(
+                pages = listOf(
+                    listOf(remoteItem(id = "one", title = "One")),
+                    listOf(remoteItem(id = "two", title = "Two")),
+                    listOf(remoteItem(id = "three", title = "Three")),
+                ),
+            ),
+            feedDao = dao,
+        )
+
+        val first = repository.refreshFeed("feed")
+        val second = repository.loadNextPage("feed")
+        val third = repository.loadNextPage("feed")
+        val end = repository.loadNextPage("feed")
+
+        assertEquals(3, first.pagesCount)
+        assertEquals(1, first.loadedPage)
+        assertEquals(2, second?.loadedPage)
+        assertEquals(3, third?.loadedPage)
+        assertEquals(null, end)
+        assertFalse(repository.hasMorePages("feed"))
+        assertEquals(3, dao.getByFeedOnce("feed").size)
+        assertEquals(3, dao.getSyncState("feed")?.pagesCountSnapshot)
+        assertEquals(3, dao.getSyncState("feed")?.pagesProcessed)
+    }
+
+    @Test
     fun favoriteHubAddsAndRemovesHubFeed() = runTest {
         val preferencesRepository = DefaultPreferencesRepository()
         val customRssSource = GenericRssSource(emptyList())
@@ -246,16 +276,7 @@ class TechReaderRepositoryTest {
 internal class MutableRemoteFeedSource(
     var items: List<FeedItem>,
 ) : FeedSource {
-    override suspend fun getFeeds(): List<FeedDescriptor> = listOf(
-        FeedDescriptor(
-            id = "feed",
-            title = "Feed",
-            sourceTitle = "Fake",
-            url = "https://example.com/rss",
-            description = "Fake feed",
-            kind = FeedKind.Custom,
-        ),
-    )
+    override suspend fun getFeeds(): List<FeedDescriptor> = fakeFeedDescriptors()
 
     override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage = FeedPage(
         items = items.map { it.copy(feedId = feedId) },
@@ -269,6 +290,41 @@ internal class MutableRemoteFeedSource(
 
     override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
 }
+
+internal class PagedRemoteFeedSource(
+    private val pages: List<List<FeedItem>>,
+) : FeedSource {
+    override suspend fun getFeeds(): List<FeedDescriptor> = fakeFeedDescriptors()
+
+    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
+        val pageNumber = page?.value?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val index = pageNumber - 1
+        return FeedPage(
+            items = pages.getOrNull(index).orEmpty().map { it.copy(feedId = feedId) },
+            nextCursor = if (pageNumber < pages.size) PageCursor((pageNumber + 1).toString()) else null,
+            fromCache = false,
+            updatedAt = "2026-05-01",
+            loadedPage = pageNumber,
+            pagesCount = pages.size,
+        )
+    }
+
+    @Deprecated("Use ArticleContentSource instead")
+    override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
+
+    override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+}
+
+private fun fakeFeedDescriptors(): List<FeedDescriptor> = listOf(
+    FeedDescriptor(
+        id = "feed",
+        title = "Feed",
+        sourceTitle = "Fake",
+        url = "https://example.com/rss",
+        description = "Fake feed",
+        kind = FeedKind.Custom,
+    ),
+)
 
 private fun remoteItem(
     id: String,

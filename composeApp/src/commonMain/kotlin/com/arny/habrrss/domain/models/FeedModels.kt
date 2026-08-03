@@ -46,6 +46,8 @@ data class FeedPage(
     val nextCursor: PageCursor?,
     val fromCache: Boolean,
     val updatedAt: String?,
+    val loadedPage: Int? = null,
+    val pagesCount: Int? = null,
 )
 
 data class PageCursor(

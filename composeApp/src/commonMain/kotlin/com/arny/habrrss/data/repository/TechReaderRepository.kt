@@ -95,14 +95,18 @@ class TechReaderRepository(
         }
 
         val cached = getCachedFeed(feedId)
-        val previousCursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor()
-        if (!force && cached.isNotEmpty() && isCacheFresh(feedId)) {
+        val syncState = feedDao.getSyncState(feedId)
+        val previousCursor = feedCursorsFlow.value[feedId] ?: syncState?.toPageCursor()
+        val hasKnownPagingState = previousCursor != null || syncState?.status == "completed"
+        if (!force && cached.isNotEmpty() && hasKnownPagingState && isCacheFresh(feedId)) {
             feedCursorsFlow.update { it + (feedId to previousCursor) }
             return FeedPage(
                 items = cached,
                 nextCursor = previousCursor,
                 fromCache = true,
                 updatedAt = feedDao.getNewestFetchedAtByFeed(feedId)?.toString(),
+                loadedPage = syncState?.pagesProcessed,
+                pagesCount = syncState?.pagesCountSnapshot,
             )
         }
 
@@ -123,20 +127,27 @@ class TechReaderRepository(
             feedDao.insertAll(entities)
         }
 
-        val nextCursor = maxCursor(previousCursor, page.nextCursor)
+        val nextCursor = when {
+            syncState?.status == "completed" && page.pagesCount != null && syncState.pagesProcessed >= page.pagesCount -> null
+            else -> maxCursor(previousCursor, page.nextCursor)
+        }
         feedCursorsFlow.update { it + (feedId to nextCursor) }
         savePagingState(
             sourceKey = feedId,
             nextCursor = nextCursor,
-            pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1),
+            pagesCount = page.pagesCount,
+            loadedPage = page.loadedPage,
             completed = nextCursor == null,
         )
 
+        val savedState = feedDao.getSyncState(feedId)
         return FeedPage(
             items = items,
             nextCursor = nextCursor,
             fromCache = false,
             updatedAt = page.updatedAt,
+            loadedPage = savedState?.pagesProcessed ?: page.loadedPage,
+            pagesCount = page.pagesCount ?: savedState?.pagesCountSnapshot,
         )
     }
 
@@ -170,15 +181,19 @@ class TechReaderRepository(
         savePagingState(
             sourceKey = feedId,
             nextCursor = page.nextCursor,
-            pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1) ?: cursor.value.toIntOrNull(),
+            pagesCount = page.pagesCount,
+            loadedPage = page.loadedPage,
             completed = page.nextCursor == null,
         )
 
+        val savedState = feedDao.getSyncState(feedId)
         return FeedPage(
             items = items,
             nextCursor = page.nextCursor,
             fromCache = false,
             updatedAt = page.updatedAt,
+            loadedPage = savedState?.pagesProcessed ?: page.loadedPage,
+            pagesCount = page.pagesCount ?: savedState?.pagesCountSnapshot,
         )
     }
 
@@ -428,11 +443,14 @@ class TechReaderRepository(
     ): FeedPage {
         if (cached.isEmpty()) throw error
         feedCursorsFlow.update { it + (feedId to nextCursor) }
+        val syncState = feedDao.getSyncState(feedId)
         return FeedPage(
             items = cached,
             nextCursor = nextCursor,
             fromCache = true,
             updatedAt = feedDao.getNewestFetchedAtByFeed(feedId)?.toString(),
+            loadedPage = syncState?.pagesProcessed,
+            pagesCount = syncState?.pagesCountSnapshot,
         )
     }
 
@@ -466,10 +484,17 @@ class TechReaderRepository(
         sourceKey: String,
         nextCursor: PageCursor?,
         pagesCount: Int?,
+        loadedPage: Int?,
         completed: Boolean,
     ) {
         val now = Clock.System.now().toEpochMilliseconds()
         val current = feedDao.getSyncState(sourceKey)
+        val processedPage = when {
+            loadedPage != null -> loadedPage
+            completed && pagesCount != null -> pagesCount
+            nextCursor != null -> nextCursor.value.toIntOrNull()?.minus(1)
+            else -> null
+        }
         feedDao.upsertSyncState(
             SyncStateEntity(
                 sourceKey = sourceKey,
@@ -477,7 +502,7 @@ class TechReaderRepository(
                 status = if (completed) "completed" else "ready",
                 nextPage = nextCursor?.value?.toIntOrNull() ?: ((current?.nextPage ?: 1).coerceAtLeast(1)),
                 pagesCountSnapshot = pagesCount ?: current?.pagesCountSnapshot,
-                pagesProcessed = current?.pagesProcessed ?: 0,
+                pagesProcessed = maxOf(current?.pagesProcessed ?: 0, processedPage ?: 0),
                 receivedCount = current?.receivedCount ?: 0,
                 uniqueCount = current?.uniqueCount ?: 0,
                 failedPage = null,

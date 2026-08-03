@@ -29,7 +29,7 @@ class FeedPagingSource(
             PagingSourceLoadResultPage(
                 data = page?.items.orEmpty(),
                 prevKey = if (pageIndex == FIRST_PAGE) null else pageIndex - 1,
-                nextKey = if (page?.nextCursor != null) pageIndex + 1 else null,
+                nextKey = page?.nextCursor?.value?.toIntOrNull(),
             )
         }.getOrElse { error ->
             PagingSourceLoadResultError(error)

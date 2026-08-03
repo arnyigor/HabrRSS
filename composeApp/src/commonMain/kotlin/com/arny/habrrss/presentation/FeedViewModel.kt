@@ -2,14 +2,6 @@ package com.arny.habrrss.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.cash.paging.Pager
-import app.cash.paging.PagingConfig
-import app.cash.paging.PagingData
-import app.cash.paging.PagingSourceLoadParamsAppend
-import app.cash.paging.PagingSourceLoadResultError
-import app.cash.paging.PagingSourceLoadResultInvalid
-import app.cash.paging.PagingSourceLoadResultPage
-import app.cash.paging.cachedIn
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
@@ -20,7 +12,6 @@ import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -70,15 +61,6 @@ class FeedViewModel(
     private var bookmarksJob: Job? = null
     private var localStateJob: Job? = null
     private var isLoadingNextPage = false
-    private var pagingSource: FeedPagingSource? = null
-    private var nextPagingKey: Int? = FIRST_APPEND_PAGE
-
-    private val pagingConfig = PagingConfig(
-        pageSize = PAGE_SIZE,
-        prefetchDistance = PAGE_PREFETCH_DISTANCE,
-        enablePlaceholders = false,
-    )
-    private var pagingFlow: Flow<PagingData<FeedItem>>? = null
 
     init {
         viewModelScope.launch { start() }
@@ -199,11 +181,9 @@ class FeedViewModel(
     }
 
     private fun resetPager(feedId: String) {
-        pagingSource = FeedPagingSource(repository = repository, feedId = feedId)
-        nextPagingKey = FIRST_APPEND_PAGE
-        pagingFlow = Pager(config = pagingConfig) {
-            FeedPagingSource(repository = repository, feedId = feedId)
-        }.flow.cachedIn(viewModelScope)
+        // Pagination state is stored per feed in the repository/DB. Keeping this hook makes feed
+        // switches explicit without resetting a hub back to page 2.
+        feedId.isNotBlank()
     }
 
     fun refresh(force: Boolean = true) {
@@ -211,8 +191,15 @@ class FeedViewModel(
         viewModelScope.launch {
             runLoading {
                 repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
-                repository.refreshFeed(feedId, force = force)
-                updateState { it.copy(canLoadMore = repository.hasMorePages(feedId), errorMessage = null) }
+                val page = repository.refreshFeed(feedId, force = force)
+                updateState {
+                    it.copy(
+                        canLoadMore = repository.hasMorePages(feedId),
+                        feedPagesLoaded = page.loadedPage,
+                        feedPagesCount = page.pagesCount,
+                        errorMessage = null,
+                    )
+                }
             }
         }
     }
@@ -239,6 +226,8 @@ class FeedViewModel(
                         ?: HabrPublicationSection.Articles,
                     selectedDestination = ReaderDestination.Feed,
                     canLoadMore = repository.hasMorePages(feedId),
+                    feedPagesLoaded = null,
+                    feedPagesCount = null,
                     errorMessage = null,
                 )
             }
@@ -275,17 +264,18 @@ class FeedViewModel(
         viewModelScope.launch {
             isLoadingNextPage = true
             try {
-                val source = pagingSource ?: FeedPagingSource(repository = repository, feedId = feedId).also {
-                    pagingSource = it
-                }
-                val key = nextPagingKey ?: return@launch
-                when (val result = source.load(PagingSourceLoadParamsAppend(key, PAGE_SIZE, false))) {
-                    is PagingSourceLoadResultPage -> {
-                        nextPagingKey = result.nextKey
-                        updateState { it.copy(canLoadMore = result.nextKey != null, errorMessage = null) }
+                val page = repository.loadNextPage(feedId)
+                if (page != null) {
+                    updateState {
+                        it.copy(
+                            canLoadMore = repository.hasMorePages(feedId),
+                            feedPagesLoaded = page.loadedPage,
+                            feedPagesCount = page.pagesCount,
+                            errorMessage = null,
+                        )
                     }
-                    is PagingSourceLoadResultError -> throw result.throwable
-                    is PagingSourceLoadResultInvalid -> updateState { it.copy(canLoadMore = false) }
+                } else {
+                    updateState { it.copy(canLoadMore = false) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -522,11 +512,20 @@ class FeedViewModel(
                         selectedPublicationSection = HabrPublicationSection.Articles,
                         selectedDestination = ReaderDestination.Feed,
                         canLoadMore = repository.hasMorePages(feed.id),
+                        feedPagesLoaded = null,
+                        feedPagesCount = null,
                         errorMessage = null,
                     )
                 }
-                repository.refreshFeed(feed.id, force = false)
-                updateState { it.copy(canLoadMore = repository.hasMorePages(feed.id), errorMessage = null) }
+                val page = repository.refreshFeed(feed.id, force = false)
+                updateState {
+                    it.copy(
+                        canLoadMore = repository.hasMorePages(feed.id),
+                        feedPagesLoaded = page.loadedPage,
+                        feedPagesCount = page.pagesCount,
+                        errorMessage = null,
+                    )
+                }
             }
         }
     }
@@ -749,12 +748,6 @@ class FeedViewModel(
         FeedKind.Custom -> HabrPublicationSection.Articles
         FeedKind.Posts -> HabrPublicationSection.Posts
         FeedKind.News -> HabrPublicationSection.News
-    }
-
-    companion object {
-        private const val PAGE_SIZE = 20
-        private const val PAGE_PREFETCH_DISTANCE = 5
-        private const val FIRST_APPEND_PAGE = 1
     }
 }
 
