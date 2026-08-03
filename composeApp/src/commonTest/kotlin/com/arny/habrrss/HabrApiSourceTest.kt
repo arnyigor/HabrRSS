@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HabrApiSourceTest {
@@ -54,7 +55,7 @@ class HabrApiSourceTest {
     }
 
     @Test
-    fun sourceKeepsPublicationIdsOrderAndSkipsMissingRefs() = runTest {
+    fun sourceSortsByNewestAndSkipsMissingRefs() = runTest {
         val source = HabrApiSource(mockJsonClient(articlesPageJson()))
 
         val page = source.getItems(HabrApiSource.FeedIds.All, page = null)
@@ -66,6 +67,18 @@ class HabrApiSourceTest {
         assertEquals(listOf("programming"), page.items.first().hubs.map { it.id })
         assertEquals("2", page.nextCursor?.value)
         assertNotNull(page.updatedAt)
+    }
+
+    @Test
+    fun generatedHubAliasIsNotTreatedAsSlug() = runTest {
+        val source = HabrApiSource(mockJsonClient(generatedHubAliasPageJson()))
+
+        val page = source.getItems(HabrApiSource.FeedIds.All, page = null)
+        val hub = page.items.single().hubs.single()
+
+        assertEquals("hub-760110735", hub.id)
+        assertEquals("Информационная безопасность", hub.title)
+        assertNull(hub.slug)
     }
 
     @Test
@@ -100,7 +113,7 @@ class HabrApiSourceTest {
         """
         {
           "pagesCount": 2,
-          "publicationIds": ["2", "1", "missing"],
+          "publicationIds": ["1", "2", "missing"],
           "publicationRefs": {
             "1": {
               "id": "1",
@@ -120,6 +133,25 @@ class HabrApiSourceTest {
               "statistics": { "commentsCount": 7, "score": 5 },
               "hubs": [
                 { "id": "hub-1", "alias": "programming", "title": "Программирование" }
+              ]
+            }
+          }
+        }
+        """.trimIndent()
+
+    private fun generatedHubAliasPageJson(): String =
+        """
+        {
+          "pagesCount": 1,
+          "publicationIds": ["1"],
+          "publicationRefs": {
+            "1": {
+              "id": "1",
+              "timePublished": "2026-08-03T10:15:00+03:00",
+              "titleHtml": "Security",
+              "leadData": { "textHtml": "<p>Preview</p>" },
+              "hubs": [
+                { "id": "hub-760110735", "alias": "hub-760110735", "title": "Информационная безопасность" }
               ]
             }
           }

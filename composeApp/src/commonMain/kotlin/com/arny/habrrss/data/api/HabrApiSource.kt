@@ -6,6 +6,7 @@ import com.arny.habrrss.data.remote.habr.HabrPeriod
 import com.arny.habrrss.data.remote.habr.HabrSearchOrder
 import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.remote.habr.mapper.HabrArticleMapper
+import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedDescriptor
@@ -36,26 +37,34 @@ class HabrApiSource(
 
     override suspend fun getFeeds(): List<FeedDescriptor> = feeds
 
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
         val request = requestFor(feedId, page)
             ?: return FeedPage(emptyList(), null, fromCache = false, updatedAt = null)
 
         return try {
-            val response = api.getArticles(request)
-            val items = mapper.orderedArticles(response).map { dto ->
-                mapper.toFeedItem(dto, feedId)
+            AppLog.measureSuspend(TAG, "getItems feedId=$feedId page=${page?.value ?: 1}") {
+                val response = api.getArticles(request)
+                val items = mapper.orderedArticles(response)
+                    .map { dto -> mapper.toFeedItem(dto, feedId) }
+                    .sortedByDescending { item -> item.publishedAtEpoch ?: Long.MIN_VALUE }
+                AppLog.i(
+                    TAG,
+                    "api page loaded feedId=$feedId page=${page?.value ?: 1} items=${items.size} pages=${response.pagesCount}",
+                )
+                FeedPage(
+                    items = items,
+                    nextCursor = request.nextCursor(response.pagesCount),
+                    fromCache = false,
+                    updatedAt = Clock.System.now().toEpochMilliseconds().toString(),
+                )
             }
-            FeedPage(
-                items = items,
-                nextCursor = request.nextCursor(response.pagesCount),
-                fromCache = false,
-                updatedAt = Clock.System.now().toEpochMilliseconds().toString(),
-            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: HabrRemoteException) {
             throw error
         } catch (error: Exception) {
+            AppLog.e(TAG, "api source unavailable feedId=$feedId page=${page?.value ?: 1}", error)
             throw SourceUnavailableException("Habr API source is unavailable: ${error.message}")
         }
     }
@@ -121,5 +130,9 @@ class HabrApiSource(
 
         fun search(query: String, order: HabrSearchOrder = HabrSearchOrder.Date): String =
             "$SearchPrefix$query:${order.wireValue}"
+    }
+
+    private companion object {
+        const val TAG = "HabrApi"
     }
 }

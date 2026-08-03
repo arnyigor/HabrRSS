@@ -88,6 +88,11 @@ class FileBackedFeedDao(
         persist()
     }
 
+    override suspend fun deleteByFeed(feedId: String) {
+        items.removeAll { it.feedId == feedId }
+        persist()
+    }
+
     override suspend fun deleteAll() {
         items.clear()
         persist()

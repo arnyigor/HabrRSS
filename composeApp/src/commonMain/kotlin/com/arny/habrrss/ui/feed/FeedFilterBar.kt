@@ -33,6 +33,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.presentation.FeedFilterChipState
+import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
 
 @Composable
@@ -59,18 +60,25 @@ internal fun FeedFilterBar(
         shadowElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 8.dp),
+            modifier = Modifier.padding(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            val title = when (state.selectedDestination) {
+                ReaderDestination.Feed -> state.selectedFeedTitle
+                ReaderDestination.Bookmarks -> state.selectedDestination.label
+                ReaderDestination.Search -> state.selectedDestination.label
+                ReaderDestination.Sources -> state.selectedDestination.label
+                ReaderDestination.Settings -> state.selectedDestination.label
+            }
             CollapsibleSectionHeader(
-                title = "Фильтры",
+                title = title,
                 summary = buildFilterSummary(state, hubs.size, tags.size),
                 expanded = filtersExpanded,
                 onClick = { filtersExpanded = !filtersExpanded },
             )
             if (filtersExpanded) {
                 val hubSelected = hubs.any { it.selected }
-                SectionLabel(if (hubSelected) "Хабы · выбранный хаб выделен" else "Хабы")
+                SectionLabel(if (hubSelected) "Хаб · $title" else "Хабы")
                 ChipRow {
                     FeedFilterChip(
                         title = "Новые",
@@ -94,7 +102,7 @@ internal fun FeedFilterBar(
                     }
                 }
                 if (tags.isNotEmpty()) {
-                    SectionLabel(if (state.selectedTagId != null) "Теги · выбранный тег выделен" else "Теги")
+                    SectionLabel(if (state.selectedTagId != null) "Тег · ${state.selectedTagTitle}" else "Теги")
                     ChipRow {
                         FeedFilterChip(
                             title = "Все теги",
@@ -161,7 +169,7 @@ private fun CollapsibleSectionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(horizontal = 20.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -237,8 +245,6 @@ private fun FeedFilterChip(
     }
 }
 
-
-//region Previews
 
 private fun previewChip(
     id: String,
@@ -408,5 +414,3 @@ private fun FeedFilterBarLargeFontPreview() {
         onClearFilters = {},
     )
 }
-
-//endregion

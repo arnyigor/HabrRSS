@@ -7,6 +7,7 @@ import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedItem
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,7 +55,7 @@ class ArticleViewModel(
         if (current.articleId == articleId && (current.article != null || current.isLoading)) return
         observeBookmark(articleId)
         articleJob?.cancel()
-        articleJob = viewModelScope.launch {
+        articleJob = viewModelScope.launch(Dispatchers.Default) {
             mutableState.update {
                 it.copy(
                     articleId = articleId,
@@ -91,7 +92,7 @@ class ArticleViewModel(
 
     fun openArticleUrl(url: String) {
         articleJob?.cancel()
-        articleJob = viewModelScope.launch {
+        articleJob = viewModelScope.launch(Dispatchers.Default) {
             mutableState.update {
                 it.copy(
                     article = null,
@@ -127,7 +128,7 @@ class ArticleViewModel(
 
     fun toggleBookmark() {
         val articleId = mutableState.value.articleId ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             repository.toggleBookmark(articleId)
             mutableState.update { it.copy(isBookmarked = repository.isBookmarked(articleId)) }
         }
@@ -142,7 +143,7 @@ class ArticleViewModel(
     }
 
     private fun loadExtras(articleId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             mutableState.update { it.copy(isLoadingExtras = true) }
             try {
                 val comments = repository.getArticleComments(articleId)
@@ -164,7 +165,7 @@ class ArticleViewModel(
 
     private fun observeBookmark(articleId: String) {
         bookmarkJob?.cancel()
-        bookmarkJob = viewModelScope.launch {
+        bookmarkJob = viewModelScope.launch(Dispatchers.Default) {
             repository.observeArticleItem(articleId).collect { item ->
                 mutableState.update { it.copy(isBookmarked = item?.isBookmarked ?: it.isBookmarked) }
             }

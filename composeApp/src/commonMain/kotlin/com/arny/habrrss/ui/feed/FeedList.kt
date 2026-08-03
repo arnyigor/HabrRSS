@@ -8,11 +8,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ internal fun FeedBody(
         onBookmark = onBookmark,
         canLoadMore = state.canLoadMore,
         listStateKey = state.feedListStateKey,
+        scrollToTopRequest = state.feedScrollToTopRequest,
         onLoadMore = onLoadMore,
     )
 }
@@ -63,11 +65,16 @@ internal fun FeedList(
     onBookmark: (String) -> Unit,
     canLoadMore: Boolean = false,
     listStateKey: String = "feed",
+    scrollToTopRequest: Long = 0L,
     onLoadMore: () -> Unit = {},
 ) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(listStateKey) {
-        listState.scrollToItem(0)
+    val listState = rememberSaveable(listStateKey, saver = LazyListState.Saver) {
+        LazyListState()
+    }
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0L) {
+            listState.animateScrollToItem(0)
+        }
     }
 
     // Load more when reaching end of list. Keep it distinct to avoid repeated calls while

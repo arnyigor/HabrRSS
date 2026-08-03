@@ -7,6 +7,7 @@ import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.CommentNode
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.source.ArticleCommentsSource
 import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.util.toEpochMillis
@@ -40,9 +41,13 @@ class HabrArticleContentSource(
 
         if (articleId != null) {
             try {
-                return mapper.toArticleContent(
+                val apiArticle = mapper.toArticleContent(
                     dto = api.getArticle(articleId.toLong()),
                     articleUrl = normalizedUrl,
+                )
+                return apiArticle.withHtmlHubSlugsIfNeeded(
+                    articleId = articleId,
+                    normalizedUrl = normalizedUrl,
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -158,6 +163,45 @@ class HabrArticleContentSource(
             children = children.map { it.toDomain() },
         )
     }
+
+    private suspend fun ArticleContent.withHtmlHubSlugsIfNeeded(
+        articleId: String,
+        normalizedUrl: String,
+    ): ArticleContent {
+        if (hubs.isEmpty() || hubs.all { !it.slug.isNullOrBlank() }) return this
+        val htmlArticle = try {
+            extractor.extract(
+                articleId = articleId,
+                articleUrl = normalizedUrl,
+                html = client.get(normalizedUrl).bodyAsText(),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return this
+        }
+        return copy(hubs = hubs.mergeHubSlugs(htmlArticle.hubs))
+    }
+
+    private fun List<Hub>.mergeHubSlugs(hubsWithSlugs: List<Hub>): List<Hub> {
+        if (hubsWithSlugs.isEmpty()) return this
+        val byTitle = hubsWithSlugs.associateBy { it.title.normalizedHubTitle() }
+        val byId = hubsWithSlugs.associateBy { it.id }
+        return map { hub ->
+            if (!hub.slug.isNullOrBlank()) {
+                hub
+            } else {
+                val withSlug = byId[hub.id] ?: byTitle[hub.title.normalizedHubTitle()]
+                if (withSlug?.slug.isNullOrBlank()) hub else hub.copy(slug = withSlug.slug)
+            }
+        }
+    }
+
+    private fun String.normalizedHubTitle(): String =
+        replace('\u00A0', ' ')
+            .trim()
+            .replace(Regex("\\s+"), " ")
+            .lowercase()
 
     private fun normalizeArticleUrl(url: String): String {
         val value = url.replace("&amp;", "&").trim()

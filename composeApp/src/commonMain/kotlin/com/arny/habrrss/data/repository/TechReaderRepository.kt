@@ -10,6 +10,7 @@ import com.arny.habrrss.data.database.SyncStateEntity
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.CustomFeedPreference
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
+import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.data.remote.habr.HabrPeriod
 import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.rss.GenericRssSource
@@ -59,12 +60,16 @@ class TechReaderRepository(
 
     suspend fun getFeeds(forceRefresh: Boolean = false): List<FeedDescriptor> {
         if (cachedFeeds.isEmpty() || forceRefresh) {
+            val startedAt = Clock.System.now().toEpochMilliseconds()
+            AppLog.d(TAG, "getFeeds rebuilding force=$forceRefresh")
             val sources = listOf(primarySource) + secondarySources
             val descriptorsBySource = sources.map { source -> source to source.getFeeds() }
             val fixedFeeds = descriptorsBySource.flatMap { (_, feeds) -> feeds } + allCachedDescriptor()
             val customFeeds = preferencesRepository?.customFeeds()?.first().orEmpty().map { it.toDescriptor() }
             val rssCustomFeeds = customFeeds.filterNot { it.isHabrApiFeed() }
-            customRssSource?.setFeeds(rssCustomFeeds)
+            val apiHubRssFeeds = customFeeds.mapNotNull { it.toHabrHubRssDescriptor() }
+            val customRssFeeds = rssCustomFeeds + apiHubRssFeeds
+            customRssSource?.setFeeds(customRssFeeds)
             cachedFeeds = (fixedFeeds + customFeeds).distinctBy { it.id }
             sourceByFeedId = buildMap {
                 descriptorsBySource.forEach { (source, feeds) ->
@@ -72,20 +77,38 @@ class TechReaderRepository(
                 }
                 customFeeds.forEach { feed ->
                     when {
+                        feed.isHabrApiFeed() && customRssSource != null -> put(feed.id, customRssSource)
                         feed.isHabrApiFeed() -> put(feed.id, primarySource)
                         customRssSource != null -> put(feed.id, customRssSource)
                     }
                 }
             }
-            fallbackSourcesByFeedId = descriptorsBySource
+            val apiHubFallbackFeeds = customFeeds.filter { it.isHabrApiFeed() }
+            fallbackSourcesByFeedId = (
+                descriptorsBySource +
+                    listOfNotNull(customRssSource?.let { it to customRssFeeds }) +
+                    listOf(primarySource to apiHubFallbackFeeds)
+                )
                 .flatMap { (source, feeds) -> feeds.map { feed -> feed.id to source } }
                 .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+            AppLog.i(
+                TAG,
+                "getFeeds loaded fixed=${fixedFeeds.size} custom=${customFeeds.size} rssCustom=${rssCustomFeeds.size} " +
+                    "apiHubRss=${apiHubRssFeeds.size} " +
+                    "sourceMap=${sourceByFeedId.size} fallbackMap=${fallbackSourcesByFeedId.size} " +
+                    "elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+            )
+        } else {
+            AppLog.d(TAG, "getFeeds cache hit count=${cachedFeeds.size}")
         }
         return cachedFeeds
     }
 
     suspend fun refreshFeed(feedId: String, force: Boolean = false): FeedPage {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        AppLog.i(TAG, "refreshFeed start feedId=$feedId force=$force")
         if (feedId == HabrApiSource.FeedIds.AllCached) {
+            AppLog.i(TAG, "refreshFeed local-all from cache elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms")
             return FeedPage(
                 items = getCachedFeed(feedId),
                 nextCursor = null,
@@ -96,8 +119,14 @@ class TechReaderRepository(
 
         val cached = getCachedFeed(feedId)
         val previousCursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor()
-        if (!force && cached.isNotEmpty() && isCacheFresh(feedId)) {
+        val isHabrHubFeed = feedId.isHabrHubFeedId()
+        if (!isHabrHubFeed && !force && cached.isNotEmpty() && isCacheFresh(feedId)) {
             feedCursorsFlow.update { it + (feedId to previousCursor) }
+            AppLog.i(
+                TAG,
+                "refreshFeed cache fresh feedId=$feedId cached=${cached.size} next=${previousCursor?.value} " +
+                    "elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+            )
             return FeedPage(
                 items = cached,
                 nextCursor = previousCursor,
@@ -118,12 +147,24 @@ class TechReaderRepository(
             return cachedFeedOrThrow(feedId, cached, previousCursor, error)
         }
         val items = page.items.applyPersistedLocalState()
+        if (isHabrHubFeed && !page.fromCache) {
+            feedDao.deleteByFeed(feedId)
+        }
         val entities = page.items.changedRemoteEntities()
         if (entities.isNotEmpty()) {
             feedDao.insertAll(entities)
         }
+        AppLog.i(
+            TAG,
+            "refreshFeed remote feedId=$feedId pageItems=${page.items.size} changed=${entities.size} " +
+                "fromCache=${page.fromCache} next=${page.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+        )
 
-        val nextCursor = maxCursor(previousCursor, page.nextCursor)
+        val nextCursor = if (isHabrHubFeed && !page.fromCache) {
+            page.nextCursor
+        } else {
+            maxCursor(previousCursor, page.nextCursor)
+        }
         feedCursorsFlow.update { it + (feedId to nextCursor) }
         savePagingState(
             sourceKey = feedId,
@@ -145,6 +186,8 @@ class TechReaderRepository(
      * Returns null if there's no more pages (cursor is null).
      */
     suspend fun loadNextPage(feedId: String): FeedPage? {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        AppLog.i(TAG, "loadNextPage start feedId=$feedId")
         if (feedId == HabrApiSource.FeedIds.AllCached) return null
         val cursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor() ?: return null
 
@@ -164,6 +207,11 @@ class TechReaderRepository(
         if (entities.isNotEmpty()) {
             feedDao.insertAll(entities)
         }
+        AppLog.i(
+            TAG,
+            "loadNextPage loaded feedId=$feedId cursor=${cursor.value} pageItems=${page.items.size} changed=${entities.size} " +
+                "next=${page.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+        )
 
         // Update cursor for next page
         feedCursorsFlow.update { it + (feedId to page.nextCursor) }
@@ -180,6 +228,49 @@ class TechReaderRepository(
             fromCache = false,
             updatedAt = page.updatedAt,
         )
+    }
+
+    suspend fun prefetchHabrHubArchive(feedId: String, pages: Int = 1) {
+        if (!feedId.isHabrHubFeedId() || pages <= 0) return
+        val syncState = feedDao.getSyncState(feedId)
+        if (syncState != null && (syncState.status == "completed" || syncState.nextPage > 1)) {
+            AppLog.i(
+                TAG,
+                "prefetchHabrHubArchive skip feedId=$feedId status=${syncState.status} next=${syncState.nextPage}",
+            )
+            return
+        }
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        var cursor = PageCursor("1")
+        AppLog.i(TAG, "prefetchHabrHubArchive start feedId=$feedId cursor=${cursor.value} pages=$pages")
+        repeat(pages.coerceAtMost(1)) {
+            val page = try {
+                primarySource.getItems(feedId, cursor)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                AppLog.w(TAG, "prefetchHabrHubArchive failed feedId=$feedId cursor=${cursor.value}", error)
+                return
+            }.onlyMatchingHabrHubItems(feedId)
+            val entities = page.items.changedRemoteEntities()
+            if (entities.isNotEmpty()) {
+                feedDao.insertAll(entities)
+            }
+            feedCursorsFlow.update { it + (feedId to page.nextCursor) }
+            savePagingState(
+                sourceKey = feedId,
+                nextCursor = page.nextCursor,
+                pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1) ?: cursor.value.toIntOrNull(),
+                completed = page.nextCursor == null,
+            )
+            AppLog.i(
+                TAG,
+                "prefetchHabrHubArchive page feedId=$feedId cursor=${cursor.value} items=${page.items.size} " +
+                    "changed=${entities.size} next=${page.nextCursor?.value}",
+            )
+            cursor = page.nextCursor ?: return
+        }
+        AppLog.i(TAG, "prefetchHabrHubArchive done feedId=$feedId elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms")
     }
 
     /**
@@ -232,12 +323,20 @@ class TechReaderRepository(
         feedDao.getFavoriteArticlesOnce().any { it.articleId == articleId }
 
     suspend fun getArticle(articleId: String): ArticleContent {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        AppLog.i(TAG, "getArticle start articleId=$articleId")
         markRead(articleId)
 
         val entity = feedDao.getById(articleId)
             ?: throw SourceUnavailableException("Article not found: $articleId")
 
-        return loadAndCacheArticle(entity)
+        return loadAndCacheArticle(entity).also { article ->
+            AppLog.i(
+                TAG,
+                "getArticle loaded articleId=$articleId blocks=${article.blocks.size} " +
+                    "elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+            )
+        }
     }
 
     suspend fun getArticleComments(articleId: String): List<CommentNode> {
@@ -311,6 +410,7 @@ class TechReaderRepository(
     suspend fun upsertCustomFeed(id: String?, title: String, url: String) {
         val hub = url.normalizedHubSlug()
         val feedId = HabrApiSource.FeedIds.hub(hub)
+        AppLog.i(TAG, "upsertCustomFeed id=$id title=$title hub=$hub feedId=$feedId")
         val feed = CustomFeedPreference(
             id = feedId,
             title = title.ifBlank { hub },
@@ -325,6 +425,7 @@ class TechReaderRepository(
     }
 
     suspend fun removeCustomFeed(id: String) {
+        AppLog.i(TAG, "removeCustomFeed id=$id")
         preferencesRepository?.removeCustomFeed(id)
         if (id.startsWith(HabrApiSource.FeedIds.HubPrefix)) {
             val slug = id.removePrefix(HabrApiSource.FeedIds.HubPrefix)
@@ -395,6 +496,7 @@ class TechReaderRepository(
 
     suspend fun toggleFavoriteHub(hubId: String, title: String? = null) {
         val slug = hubId.removePrefix("hub-").toHubSlug()
+        AppLog.i(TAG, "toggleFavoriteHub hubId=$hubId title=$title slug=$slug")
         if (feedDao.getFavoriteHubsOnce().any { it.hubId == hubId }) {
             feedDao.deleteFavoriteHub(hubId)
             removeCustomHubFeed(slug)
@@ -494,8 +596,9 @@ class TechReaderRepository(
 
     private suspend fun List<FeedItem>.changedRemoteEntities(): List<FeedItemEntity> {
         val now = Clock.System.now().toEpochMilliseconds()
+        val currentById = feedDao.getAllCachedOnce().associateBy { it.id }
         return mapNotNull { item ->
-            val current = feedDao.getById(item.id)
+            val current = currentById[item.id]
             val next = item.toEntity(
                 json = json,
                 cachedArticleJson = current?.cachedArticleJson,
@@ -585,22 +688,51 @@ class TechReaderRepository(
         return sourceByFeedId[feedId] ?: primarySource
     }
 
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     private suspend fun loadFeedPageWithFallback(feedId: String, page: PageCursor?): FeedPage {
+        if (feedId.isHabrHubFeedId()) {
+            return loadHabrHubPage(feedId, page)
+        }
         val primary = sourceFor(feedId)
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        AppLog.d(TAG, "loadFeedPage primary=${primary.sourceName()} feedId=$feedId page=${page?.value ?: 1}")
         return try {
-            primary.getItems(feedId, page)
+            primary.getItems(feedId, page).also { result ->
+                AppLog.i(
+                    TAG,
+                    "loadFeedPage primary success source=${primary.sourceName()} feedId=$feedId items=${result.items.size} " +
+                        "fromCache=${result.fromCache} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+                )
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (primaryError: Exception) {
             if (primaryError.isNonFallbackHabrError()) throw primaryError
+            AppLog.w(
+                TAG,
+                "loadFeedPage primary failed source=${primary.sourceName()} feedId=$feedId page=${page?.value ?: 1}; trying fallbacks",
+                primaryError,
+            )
             fallbackSourcesByFeedId[feedId].orEmpty()
                 .filterNot { it == primary }
                 .firstNotNullOfOrNull { fallbackSource ->
                     try {
-                        fallbackSource.getItems(feedId, page)
+                        fallbackSource.getItems(feedId, page).also { result ->
+                            AppLog.i(
+                                TAG,
+                                "loadFeedPage fallback success source=${fallbackSource.sourceName()} feedId=$feedId " +
+                                    "items=${result.items.size} fromCache=${result.fromCache} " +
+                                    "elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+                            )
+                        }
                     } catch (error: CancellationException) {
                         throw error
-                    } catch (_: Exception) {
+                    } catch (fallbackError: Exception) {
+                        AppLog.w(
+                            TAG,
+                            "loadFeedPage fallback failed source=${fallbackSource.sourceName()} feedId=$feedId",
+                            fallbackError,
+                        )
                         null
                     }
                 }
@@ -608,10 +740,88 @@ class TechReaderRepository(
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun loadHabrHubPage(feedId: String, page: PageCursor?): FeedPage {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        if (page != null) {
+            AppLog.d(TAG, "loadHabrHubPage api archive feedId=$feedId page=${page.value}")
+            return primarySource.getItems(feedId, page).onlyMatchingHabrHubItems(feedId).also { result ->
+                AppLog.i(
+                    TAG,
+                    "loadHabrHubPage api archive success feedId=$feedId page=${page.value} items=${result.items.size} " +
+                        "next=${result.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+                )
+            }
+        }
+
+        val rssSource = customRssSource
+        if (rssSource != null) {
+            try {
+                AppLog.d(TAG, "loadHabrHubPage rss latest feedId=$feedId")
+                val rssPage = rssSource.getItems(feedId, null)
+                if (rssPage.items.isEmpty() && rssPage.fromCache) {
+                    AppLog.w(TAG, "loadHabrHubPage rss latest unavailable feedId=$feedId; falling back to api")
+                } else {
+                    return rssPage.copy(nextCursor = PageCursor("1")).onlyMatchingHabrHubItems(feedId).also { result ->
+                        AppLog.i(
+                            TAG,
+                            "loadHabrHubPage rss latest success feedId=$feedId items=${result.items.size} " +
+                                "next=${result.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+                        )
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                AppLog.w(TAG, "loadHabrHubPage rss latest failed feedId=$feedId; falling back to api", error)
+            }
+        }
+
+        return primarySource.getItems(feedId, null).onlyMatchingHabrHubItems(feedId).also { result ->
+            AppLog.i(
+                TAG,
+                "loadHabrHubPage api latest fallback success feedId=$feedId items=${result.items.size} " +
+                    "next=${result.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+            )
+        }
+    }
+
     private fun Exception.isNonFallbackHabrError(): Boolean =
         this is HabrRemoteException.BadRequest ||
-            this is HabrRemoteException.NotFound ||
             this is HabrRemoteException.Validation
+
+    private fun FeedSource.sourceName(): String = this::class.simpleName ?: "FeedSource"
+
+    private fun String.isHabrHubFeedId(): Boolean = startsWith(HabrApiSource.FeedIds.HubPrefix)
+
+    private fun String.habrHubSlugOrNull(): String? =
+        takeIf { it.isHabrHubFeedId() }
+            ?.removePrefix(HabrApiSource.FeedIds.HubPrefix)
+            ?.substringBefore(':')
+            ?.toHubSlug()
+            ?.takeIf { slug -> slug.isNotBlank() }
+
+    private fun FeedPage.onlyMatchingHabrHubItems(feedId: String): FeedPage {
+        val hubSlug = feedId.habrHubSlugOrNull() ?: return this
+        val filtered = items.filter { item -> item.belongsToHub(hubSlug) }
+        if (filtered.size != items.size) {
+            AppLog.w(
+                TAG,
+                "filtered non-matching hub articles feedId=$feedId hub=$hubSlug before=${items.size} after=${filtered.size}",
+            )
+        }
+        return copy(items = filtered)
+    }
+
+    private fun FeedItem.belongsToHub(hubSlug: String): Boolean =
+        hubs.any { hub -> hub.matchesHubSlug(hubSlug) }
+
+    private fun Hub.matchesHubSlug(hubSlug: String): Boolean {
+        val normalizedSlug = hubSlug.toHubSlug()
+        return id.toHubSlug() == normalizedSlug ||
+            slug?.toHubSlug() == normalizedSlug ||
+            title.toHubSlug() == normalizedSlug
+    }
 
     private suspend fun List<FeedItem>.applyPersistedLocalState(): List<FeedItem> {
         val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
@@ -651,8 +861,23 @@ class TechReaderRepository(
 
     private fun FeedDescriptor.isHabrApiFeed(): Boolean = id.startsWith(HabrApiSource.FeedIds.HubPrefix)
 
+    private fun FeedDescriptor.toHabrHubRssDescriptor(): FeedDescriptor? {
+        if (!isHabrApiFeed()) return null
+        val slug = url.toHubSlug().takeIf { it.isNotBlank() }
+            ?: id.removePrefix(HabrApiSource.FeedIds.HubPrefix).substringBefore(':').takeIf { it.isNotBlank() }
+            ?: return null
+        return copy(
+            sourceTitle = "Habr RSS",
+            url = slug.toHabrHubRssUrl(),
+            description = "RSS fallback for Habr hub $slug",
+        )
+    }
+
     private fun String.toHabrHubUrl(): String =
         "https://habr.com/ru/hubs/$this/"
+
+    private fun String.toHabrHubRssUrl(): String =
+        "https://habr.com/ru/rss/hub/$this/all/?fl=ru&with_hubs=true&with_tags=true"
 
     private fun buildArticleContent(entity: FeedItemEntity): ArticleContent {
         val blocks = entity.descriptionHtml?.let { HtmlArticleParser.parse(it, entity.url) }
@@ -805,3 +1030,4 @@ private const val RELATED_ARTICLES_LIMIT = 6
 private const val TAG_MATCH_WEIGHT = 2
 private const val HUB_MATCH_WEIGHT = 1
 private const val FEED_REFRESH_TTL_MILLIS = 60L * 60L * 1_000L
+private const val TAG = "Repository"

@@ -10,22 +10,27 @@ import app.cash.paging.PagingSourceLoadResultError
 import app.cash.paging.PagingSourceLoadResultInvalid
 import app.cash.paging.PagingSourceLoadResultPage
 import app.cash.paging.cachedIn
+import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
-import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.FeedKind
+import com.arny.habrrss.domain.models.FeedSettings
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 
 sealed interface FeedIntent {
     data object Refresh : FeedIntent
@@ -82,10 +87,11 @@ class FeedViewModel(
     private var pagingFlow: Flow<PagingData<FeedItem>>? = null
 
     init {
-        viewModelScope.launch { start() }
+        viewModelScope.launch(Dispatchers.Default) { start() }
     }
 
     fun dispatch(intent: FeedIntent) {
+        AppLog.d(TAG, "dispatch ${intent.logSummary()}")
         when (intent) {
             FeedIntent.Refresh -> refresh()
             FeedIntent.LoadMore -> loadMoreItems()
@@ -114,6 +120,8 @@ class FeedViewModel(
     }
 
     private suspend fun start() {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        AppLog.i(TAG, "start")
         val settings = preferencesRepository.preferences().first()
         migrateFavoriteMetadataFromPreferences()
         val feeds = repository.getFeeds()
@@ -139,6 +147,12 @@ class FeedViewModel(
         observeLocalFavorites()
         resetPager(activeFeedId)
         refresh(force = false)
+        AppLog.i(
+            TAG,
+            "start completed feed=$activeFeedId feeds=${feeds.size} elapsed=${
+                Clock.System.now().toEpochMilliseconds() - startedAt
+            }ms"
+        )
     }
 
     private suspend fun migrateFavoriteMetadataFromPreferences() {
@@ -153,9 +167,11 @@ class FeedViewModel(
     }
 
     private fun observeFeed(feedId: String) {
+        AppLog.i(TAG, "observeFeed feedId=$feedId")
         feedJob?.cancel()
-        feedJob = viewModelScope.launch {
-            repository.observeFeed(feedId).collect { items ->
+        feedJob = viewModelScope.launch(Dispatchers.Default) {
+            repository.observeFeed(feedId).flowOn(Dispatchers.Default).collect { items ->
+                AppLog.d(TAG, "observeFeed emission feedId=$feedId items=${items.size}")
                 updateState { state ->
                     val selected = state.selectedArticleId
                     state.copy(
@@ -170,8 +186,8 @@ class FeedViewModel(
 
     private fun observeBookmarks() {
         if (bookmarksJob != null) return
-        bookmarksJob = viewModelScope.launch {
-            repository.observeBookmarks().collect { bookmarkedItems ->
+        bookmarksJob = viewModelScope.launch(Dispatchers.Default) {
+            repository.observeBookmarks().flowOn(Dispatchers.Default).collect { bookmarkedItems ->
                 updateState { it.copy(bookmarkedItems = bookmarkedItems) }
             }
         }
@@ -179,7 +195,7 @@ class FeedViewModel(
 
     private fun observeLocalFavorites() {
         if (localStateJob != null) return
-        localStateJob = viewModelScope.launch {
+        localStateJob = viewModelScope.launch(Dispatchers.Default) {
             kotlinx.coroutines.flow.combine(
                 repository.observeFavoriteHubIds(),
                 repository.observeFavoriteTagIds(),
@@ -188,6 +204,7 @@ class FeedViewModel(
             ) { hubIds, tagIds, hubTitles, tagTitles ->
                 FavoriteMetadata(hubIds, tagIds, hubTitles, tagTitles)
             }
+                .flowOn(Dispatchers.Default)
                 .collect { metadata ->
                     updateState {
                         it.copy(
@@ -202,6 +219,7 @@ class FeedViewModel(
     }
 
     private fun resetPager(feedId: String) {
+        AppLog.d(TAG, "resetPager feedId=$feedId")
         pagingSource = FeedPagingSource(repository = repository, feedId = feedId)
         nextPagingKey = FIRST_APPEND_PAGE
         pagingFlow = Pager(config = pagingConfig) {
@@ -209,19 +227,82 @@ class FeedViewModel(
         }.flow.cachedIn(viewModelScope)
     }
 
-    fun refresh(force: Boolean = true) {
+    fun refresh(force: Boolean = true, scrollToTopOnNewItems: Boolean = true) {
         val feedId = mutableState.value.activeFeedId ?: return
-        viewModelScope.launch {
+        val previousTopArticle = mutableState.value
+            .takeIf { scrollToTopOnNewItems && it.selectedDestination == ReaderDestination.Feed }
+            ?.items
+            ?.firstOrNull()
+            ?.articleIdentityKey()
+        viewModelScope.launch(Dispatchers.Default) {
+            var refreshed = false
             runLoading {
-                repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
-                repository.refreshFeed(feedId, force = force)
-                updateState { it.copy(canLoadMore = repository.hasMorePages(feedId), errorMessage = null) }
+                AppLog.i(TAG, "refresh start feedId=$feedId force=$force")
+                repository.getFeeds(forceRefresh = true)
+                    .also { feeds -> updateState { it.copy(feeds = feeds) } }
+                val page = repository.refreshFeed(feedId, force = force)
+                requestScrollToTopAfterFreshLoad(
+                    feedId = feedId,
+                    previousTopArticle = previousTopArticle,
+                    loadedItems = page.items,
+                )
+                updateState {
+                    it.copy(
+                        canLoadMore = repository.hasMorePages(feedId),
+                        errorMessage = null
+                    )
+                }
+                AppLog.i(
+                    TAG,
+                    "refresh completed feedId=$feedId canLoadMore=${repository.hasMorePages(feedId)}"
+                )
+                refreshed = true
+            }
+            if (refreshed) {
+                prefetchHabrHubArchive(feedId)
+            }
+        }
+    }
+
+    private fun prefetchHabrHubArchive(feedId: String) {
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                repository.prefetchHabrHubArchive(feedId)
+                updateState { it.copy(canLoadMore = repository.hasMorePages(feedId)) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                AppLog.w(TAG, "prefetchHabrHubArchive ignored feedId=$feedId", error)
+            }
+        }
+    }
+
+    private fun requestScrollToTopAfterFreshLoad(
+        feedId: String,
+        previousTopArticle: String?,
+        loadedItems: List<FeedItem>,
+    ) {
+        val nextTopArticle = loadedItems.firstOrNull()?.articleIdentityKey()
+        if (previousTopArticle == null || nextTopArticle == null || previousTopArticle == nextTopArticle) {
+            return
+        }
+        updateState { state ->
+            if (
+                state.activeFeedId == feedId &&
+                state.selectedDestination == ReaderDestination.Feed &&
+                !state.isArticleOpen
+            ) {
+                AppLog.i(TAG, "request feed scroll to top feedId=$feedId previous=$previousTopArticle next=$nextTopArticle")
+                state.copy(feedScrollToTopRequest = state.feedScrollToTopRequest + 1)
+            } else {
+                state
             }
         }
     }
 
     fun selectFeed(feedId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
+            AppLog.i(TAG, "selectFeed feedId=$feedId")
             observeFeed(feedId)
             resetPager(feedId)
             updateState { state ->
@@ -245,7 +326,7 @@ class FeedViewModel(
                     errorMessage = null,
                 )
             }
-            refresh(force = false)
+            refresh(force = false, scrollToTopOnNewItems = false)
         }
     }
 
@@ -254,6 +335,7 @@ class FeedViewModel(
     }
 
     fun selectArticle(articleId: String) {
+        AppLog.i(TAG, "selectArticle articleId=$articleId")
         updateState { state ->
             state.copy(
                 selectedArticleId = articleId,
@@ -264,6 +346,7 @@ class FeedViewModel(
                 selectedDestination = when (state.selectedDestination) {
                     ReaderDestination.Bookmarks,
                     ReaderDestination.Search -> state.selectedDestination
+
                     ReaderDestination.Feed,
                     ReaderDestination.Sources,
                     ReaderDestination.Settings -> ReaderDestination.Feed
@@ -275,18 +358,33 @@ class FeedViewModel(
     fun loadMoreItems() {
         val feedId = mutableState.value.activeFeedId ?: return
         if (isLoadingNextPage || !repository.hasMorePages(feedId)) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             isLoadingNextPage = true
             try {
-                val source = pagingSource ?: FeedPagingSource(repository = repository, feedId = feedId).also {
+                AppLog.i(TAG, "loadMore start feedId=$feedId key=$nextPagingKey")
+                val source = pagingSource ?: FeedPagingSource(
+                    repository = repository,
+                    feedId = feedId
+                ).also {
                     pagingSource = it
                 }
                 val key = nextPagingKey ?: return@launch
-                when (val result = source.load(PagingSourceLoadParamsAppend(key, PAGE_SIZE, false))) {
+                when (val result =
+                    source.load(PagingSourceLoadParamsAppend(key, PAGE_SIZE, false))) {
                     is PagingSourceLoadResultPage -> {
                         nextPagingKey = result.nextKey
-                        updateState { it.copy(canLoadMore = result.nextKey != null, errorMessage = null) }
+                        AppLog.i(
+                            TAG,
+                            "loadMore page feedId=$feedId items=${result.data.size} next=${result.nextKey}"
+                        )
+                        updateState {
+                            it.copy(
+                                canLoadMore = result.nextKey != null,
+                                errorMessage = null
+                            )
+                        }
                     }
+
                     is PagingSourceLoadResultError -> throw result.throwable
                     is PagingSourceLoadResultInvalid -> updateState { it.copy(canLoadMore = false) }
                 }
@@ -344,19 +442,21 @@ class FeedViewModel(
     }
 
     fun toggleFavoriteTag(tagId: String) {
-        viewModelScope.launch {
-            val title = mutableState.value.items.flatMap { it.tags }.firstOrNull { it.id == tagId }?.title
+        viewModelScope.launch(Dispatchers.Default) {
+            val title =
+                mutableState.value.items.flatMap { it.tags }.firstOrNull { it.id == tagId }?.title
             repository.toggleFavoriteTag(tagId = tagId, title = title)
         }
     }
 
     fun toggleFavoriteHub(hubId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val currentState = mutableState.value
             val title = currentState.items.flatMap { it.hubs }.firstOrNull { it.id == hubId }?.title
                 ?: currentState.favoriteHubs.firstOrNull { it.first == hubId }?.second
             repository.toggleFavoriteHub(hubId = hubId, title = title)
-            repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
+            repository.getFeeds(forceRefresh = true)
+                .also { feeds -> updateState { it.copy(feeds = feeds) } }
         }
     }
 
@@ -408,8 +508,13 @@ class FeedViewModel(
     }
 
     fun setFeedCardMode(mode: FeedCardMode) {
-        updateState { it.copy(feedCardMode = mode, settings = it.settings.copy(feedCardMode = mode.name)) }
-        viewModelScope.launch {
+        updateState {
+            it.copy(
+                feedCardMode = mode,
+                settings = it.settings.copy(feedCardMode = mode.name)
+            )
+        }
+        viewModelScope.launch(Dispatchers.Default) {
             preferencesRepository.setFeedCardMode(mode.name)
             preferencesRepository.setCompactCards(mode == FeedCardMode.CompactText)
         }
@@ -420,14 +525,18 @@ class FeedViewModel(
     }
 
     fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val current = mutableState.value.settings
             val next = transform(current)
             updateState { it.copy(settings = next) }
             if (next.fontScale != current.fontScale) preferencesRepository.setFontScale(next.fontScale)
-            if (next.lineHeightScale != current.lineHeightScale) preferencesRepository.setLineHeightScale(next.lineHeightScale)
+            if (next.lineHeightScale != current.lineHeightScale) preferencesRepository.setLineHeightScale(
+                next.lineHeightScale
+            )
             if (next.themeMode != current.themeMode) preferencesRepository.setThemeMode(next.themeMode)
-            if (next.compactCards != current.compactCards) preferencesRepository.setCompactCards(next.compactCards)
+            if (next.compactCards != current.compactCards) preferencesRepository.setCompactCards(
+                next.compactCards
+            )
             if (next.openLinksInsideApp != current.openLinksInsideApp) {
                 preferencesRepository.setOpenLinksInsideApp(next.openLinksInsideApp)
             }
@@ -435,7 +544,7 @@ class FeedViewModel(
     }
 
     fun openArticleUrl(url: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             runLoading {
                 val article = repository.getArticleByUrl(url)
                 updateState {
@@ -453,7 +562,7 @@ class FeedViewModel(
 
     fun saveCustomFeed(id: String?, title: String, url: String) {
         if (url.isBlank()) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             runLoading {
                 val wasActive = mutableState.value.activeFeedId == id
                 repository.upsertCustomFeed(id, title, url)
@@ -476,19 +585,26 @@ class FeedViewModel(
                 }
                 if (wasActive && savedFeed != null) {
                     repository.refreshFeed(savedFeed.id)
-                    updateState { it.copy(canLoadMore = repository.hasMorePages(savedFeed.id), errorMessage = null) }
+                    updateState {
+                        it.copy(
+                            canLoadMore = repository.hasMorePages(savedFeed.id),
+                            errorMessage = null
+                        )
+                    }
                 }
             }
         }
     }
 
     fun removeCustomFeed(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             runLoading {
                 repository.removeCustomFeed(id)
                 val feeds = repository.getFeeds(forceRefresh = true)
                 val activeFeedRemoved = mutableState.value.activeFeedId == id
-                val nextFeedId = if (activeFeedRemoved) feeds.firstOrNull { it.kind == FeedKind.All }?.id ?: feeds.firstOrNull()?.id else null
+                val nextFeedId =
+                    if (activeFeedRemoved) feeds.firstOrNull { it.kind == FeedKind.All }?.id
+                        ?: feeds.firstOrNull()?.id else null
                 if (nextFeedId != null) {
                     observeFeed(nextFeedId)
                     resetPager(nextFeedId)
@@ -503,14 +619,14 @@ class FeedViewModel(
                         selectedTagTitle = if (activeFeedRemoved) null else it.selectedTagTitle,
                     )
                 }
-                if (nextFeedId != null) refresh()
+                if (nextFeedId != null) refresh(scrollToTopOnNewItems = false)
             }
         }
     }
 
     fun openHubFeed(slug: String, title: String) {
         val normalizedSlug = slug.toHubSlug().takeIf { it.isNotBlank() } ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             runLoading {
                 repository.upsertCustomFeed(id = null, title = title, url = normalizedSlug)
                 val feeds = repository.getFeeds(forceRefresh = true)
@@ -537,13 +653,18 @@ class FeedViewModel(
                     )
                 }
                 repository.refreshFeed(feed.id, force = false)
-                updateState { it.copy(canLoadMore = repository.hasMorePages(feed.id), errorMessage = null) }
+                updateState {
+                    it.copy(
+                        canLoadMore = repository.hasMorePages(feed.id),
+                        errorMessage = null
+                    )
+                }
             }
         }
     }
 
     fun toggleArticleBookmark(articleId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             repository.toggleBookmark(articleId)
             updateState { state ->
                 state.copy(
@@ -561,7 +682,7 @@ class FeedViewModel(
         val baseFeedId = mutableState.value.feeds.firstOrNull { it.kind == FeedKind.All }?.id
             ?: mutableState.value.feeds.firstOrNull { it.kind != FeedKind.Hub && it.kind != FeedKind.Custom }?.id
             ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             observeFeed(baseFeedId)
             resetPager(baseFeedId)
             updateState {
@@ -582,7 +703,7 @@ class FeedViewModel(
                     errorMessage = null,
                 )
             }
-            refresh()
+            refresh(scrollToTopOnNewItems = false)
         }
     }
 
@@ -607,11 +728,22 @@ class FeedViewModel(
     }
 
     private inline fun updateState(transform: (ReaderUiState) -> ReaderUiState) {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
         mutableState.update { current ->
             val next = transform(current)
             val visibleItems = computeVisibleItems(next)
             next.copy(visibleItems = visibleItems)
                 .withFilterChips(visibleItems)
+                .also { updated ->
+                    AppLog.d(
+                        TAG,
+                        "updateState items=${updated.items.size} visible=${updated.visibleItems.size} " +
+                                "hubs=${updated.hubFilters.size} tags=${updated.tagFilters.size} " +
+                                "destination=${updated.selectedDestination} elapsed=${
+                                    Clock.System.now().toEpochMilliseconds() - startedAt
+                                }ms",
+                    )
+                }
         }
     }
 
@@ -629,16 +761,20 @@ class FeedViewModel(
         return sectionItems
             .asSequence()
             .filter { item -> !state.showUnreadOnly || !item.isRead }
-            .filter { item -> state.selectedHubId == null || item.hubs.any { it.id == state.selectedHubId } }
+            .filter { item -> state.selectedHubId == null || item.hubs.any { it.matchesHubFilter(state.selectedHubId) } }
             .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
             .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
             .distinctBy { it.articleIdentityKey() }
             .toList()
             .let { filtered ->
                 when (state.feedSortMode) {
-                    FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: Long.MIN_VALUE }
+                    FeedSortMode.Newest -> filtered.sortedByDescending {
+                        it.publishedAtEpoch ?: Long.MIN_VALUE
+                    }
+
                     FeedSortMode.Rating -> filtered.sortedByDescending {
-                        it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull() ?: 0
+                        it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull()
+                            ?: 0
                     }
                 }
             }
@@ -646,7 +782,14 @@ class FeedViewModel(
 
     private fun ReaderUiState.withFilterChips(visibleItems: List<FeedItem>): ReaderUiState {
         val activeFeed = feeds.firstOrNull { it.id == activeFeedId }
-        val filterBaseItems = if (selectedDestination == ReaderDestination.Bookmarks) bookmarkedItems else items
+        val filterBaseItems =
+            if (selectedDestination == ReaderDestination.Bookmarks) bookmarkedItems else items
+        val filterHubCounts = filterBaseItems.hubCounts()
+        val filterHubTitles = filterBaseItems.hubTitlesById()
+        val allHubTitles = if (filterBaseItems === items) filterHubTitles else items.hubTitlesById()
+        val filterTagCounts = filterBaseItems.tagCounts()
+        val filterTagTitles = filterBaseItems.tagTitlesById()
+        val allTagTitles = if (filterBaseItems === items) filterTagTitles else items.tagTitlesById()
         val customHubChips = feeds
             .filter { selectedDestination != ReaderDestination.Bookmarks && (it.kind == FeedKind.Hub || it.kind == FeedKind.Custom) }
             .map { feed ->
@@ -654,61 +797,59 @@ class FeedViewModel(
                     id = feed.id,
                     title = feed.title,
                     count = if (feed.id == activeFeedId) items.size else 0,
-                    favorite = true,
+                    favorite = false,
                     selected = feed.id == activeFeedId && selectedHubId == null,
                     feedId = feed.id,
                 )
             }
-        val selectedHubChip = selectedHubId?.let { id ->
+        val customHubSlugs = feeds
+            .filter { it.kind == FeedKind.Hub || it.kind == FeedKind.Custom }
+            .mapTo(mutableSetOf()) { it.url.toHubSlug() }
+        val selectedHubChip = selectedHubId
+            ?.takeUnless { id -> id in customHubSlugs }
+            ?.let { id ->
             FeedFilterChipState(
                 id = id,
                 title = selectedHubTitle ?: hubTitle(id),
-                count = visibleItems.size.takeIf { it > 0 } ?: filterBaseItems.count { item -> item.hubs.any { it.id == id } },
-                favorite = id in favoriteHubIds,
+                count = visibleItems.size.takeIf { it > 0 } ?: filterHubCounts[id].orZero(),
+                favorite = false,
                 selected = true,
             )
         }
-        val favoriteHubChips = favoriteHubIds.mapNotNull { id ->
-            val title = favoriteHubTitles[id] ?: filterBaseItems.hubTitle(id) ?: items.hubTitle(id) ?: return@mapNotNull null
-            if (title.looksLikeGeneratedId()) return@mapNotNull null
-            FeedFilterChipState(
-                id = id,
-                title = title,
-                count = filterBaseItems.count { item -> item.hubs.any { it.id == id } },
-                favorite = true,
-                selected = id == selectedHubId,
-            )
-        }
-        val hubChips = (listOfNotNull(selectedHubChip) + customHubChips + favoriteHubChips)
-            .distinctBy { it.id }
+        val hubChips = (listOfNotNull(selectedHubChip) + customHubChips)
+            .distinctBy { it.id }.sortedByDescending { it.selected }
 
-        val tagSourceItems = if (selectedDestination == ReaderDestination.Bookmarks || selectedHubId != null || activeFeed?.kind == FeedKind.Hub || activeFeed?.kind == FeedKind.Custom) {
-            visibleItems
-        } else {
-            emptyList()
-        }
+        val tagSourceItems =
+            if (selectedDestination == ReaderDestination.Bookmarks || selectedHubId != null || activeFeed?.kind == FeedKind.Hub || activeFeed?.kind == FeedKind.Custom) {
+                visibleItems
+            } else {
+                emptyList()
+            }
         val tagCounts = tagSourceItems.tagCounts()
         val selectedTagChip = selectedTagId?.let { id ->
             FeedFilterChipState(
                 id = id,
                 title = selectedTagTitle ?: tagTitle(id),
-                count = visibleItems.size.takeIf { it > 0 } ?: filterBaseItems.count { item -> item.tags.any { it.id == id } },
+                count = visibleItems.size.takeIf { it > 0 } ?: filterTagCounts[id].orZero(),
                 favorite = id in favoriteTagIds,
                 selected = true,
             )
         }
         val favoriteTagChips = favoriteTagIds.mapNotNull { id ->
-            val title = favoriteTagTitles[id] ?: filterBaseItems.tagTitle(id) ?: items.tagTitle(id) ?: return@mapNotNull null
+            val title = favoriteTagTitles[id] ?: filterTagTitles[id] ?: allTagTitles[id]
+            ?: return@mapNotNull null
             if (title.looksLikeGeneratedId()) return@mapNotNull null
             FeedFilterChipState(
                 id = id,
                 title = title,
-                count = tagCounts[id] ?: filterBaseItems.count { item -> item.tags.any { it.id == id } },
+                count = tagCounts[id] ?: filterTagCounts[id].orZero(),
                 favorite = true,
                 selected = id == selectedTagId,
             )
         }
-        val contextTagChips = tagSourceItems.flatMap { it.tags }
+        val contextTagChips = tagSourceItems
+            .asSequence()
+            .flatMap { it.tags }
             .distinctBy { it.id }
             .filterNot { it.title.looksLikeGeneratedId() }
             .sortedByDescending { tagCounts[it.id] ?: 0 }
@@ -721,7 +862,7 @@ class FeedViewModel(
                     favorite = tag.id in favoriteTagIds,
                     selected = tag.id == selectedTagId,
                 )
-            }
+            }.toList()
         val tagChips = (listOfNotNull(selectedTagChip) + favoriteTagChips + contextTagChips)
             .distinctBy { it.id }
 
@@ -738,26 +879,35 @@ class FeedViewModel(
         return normalizedUrl.ifBlank { title.trim().lowercase() }
     }
 
-    private fun FeedItem.matchesSearchTerm(rawTerm: String): Boolean {
-        val term = rawTerm.removePrefix("#")
-        val searchableText = listOf(
-            title,
-            summary,
+private fun FeedItem.matchesSearchTerm(rawTerm: String): Boolean {
+    val term = rawTerm.removePrefix("#")
+    val searchableText = listOf(
+        title,
+        summary,
             descriptionHtml.orEmpty(),
             author?.displayName.orEmpty(),
             tags.joinToString(" ") { "${it.title} ${it.id}" },
             hubs.joinToString(" ") { "${it.title} ${it.id}" },
         ).joinToString(" ")
-        return searchableText.contains(term, ignoreCase = true)
-    }
+    return searchableText.contains(term, ignoreCase = true)
+}
 
-    private fun FeedKind.toPublicationSection(): HabrPublicationSection = when (this) {
+private fun Hub.matchesHubFilter(filterId: String): Boolean {
+    val normalizedFilter = filterId.toHubSlug()
+    return id == filterId ||
+        id.toHubSlug() == normalizedFilter ||
+        slug?.toHubSlug() == normalizedFilter ||
+        title.toHubSlug() == normalizedFilter
+}
+
+private fun FeedKind.toPublicationSection(): HabrPublicationSection = when (this) {
         FeedKind.All,
         FeedKind.Best,
         FeedKind.Hub,
         FeedKind.Tag,
         FeedKind.Search,
         FeedKind.Custom -> HabrPublicationSection.Articles
+
         FeedKind.Posts -> HabrPublicationSection.Posts
         FeedKind.News -> HabrPublicationSection.News
     }
@@ -769,19 +919,21 @@ class FeedViewModel(
     }
 }
 
-private fun ReaderUiState.hubTitle(id: String): String = hubFilters.firstOrNull { it.id == id }?.title
-    ?: favoriteHubTitles[id]
-    ?: favoriteHubs.firstOrNull { it.first == id }?.second
-    ?: visibleItems.hubTitle(id)
-    ?: items.hubTitle(id)
-    ?: id.removePrefix("hub-")
+private fun ReaderUiState.hubTitle(id: String): String =
+    hubFilters.firstOrNull { it.id == id }?.title
+        ?: favoriteHubTitles[id]
+        ?: favoriteHubs.firstOrNull { it.first == id }?.second
+        ?: visibleItems.hubTitle(id)
+        ?: items.hubTitle(id)
+        ?: id.removePrefix("hub-")
 
-private fun ReaderUiState.tagTitle(id: String): String = tagFilters.firstOrNull { it.id == id }?.title
-    ?: favoriteTagTitles[id]
-    ?: favoriteTags.firstOrNull { it.first == id }?.second
-    ?: visibleItems.tagTitle(id)
-    ?: items.tagTitle(id)
-    ?: id.removePrefix("tag-")
+private fun ReaderUiState.tagTitle(id: String): String =
+    tagFilters.firstOrNull { it.id == id }?.title
+        ?: favoriteTagTitles[id]
+        ?: favoriteTags.firstOrNull { it.first == id }?.second
+        ?: visibleItems.tagTitle(id)
+        ?: items.tagTitle(id)
+        ?: id.removePrefix("tag-")
 
 private fun List<FeedItem>.hubTitle(id: String): String? = asSequence()
     .flatMap { it.hubs.asSequence() }
@@ -793,13 +945,60 @@ private fun List<FeedItem>.tagTitle(id: String): String? = asSequence()
     .firstOrNull { it.id == id }
     ?.title
 
-private fun List<FeedItem>.tagCounts(): Map<String, Int> = flatMap { item -> item.tags.map { it.id } }
-    .groupingBy { it }
-    .eachCount()
+private fun List<FeedItem>.tagCounts(): Map<String, Int> =
+    flatMap { item -> item.tags.map { it.id } }
+        .groupingBy { it }
+        .eachCount()
+
+private fun List<FeedItem>.hubCounts(): Map<String, Int> =
+    flatMap { item -> item.hubs.map { it.id } }
+        .groupingBy { it }
+        .eachCount()
+
+private fun List<FeedItem>.hubTitlesById(): Map<String, String> = buildMap {
+    this@hubTitlesById.forEach { item ->
+        item.hubs.forEach { hub -> putIfAbsent(hub.id, hub.title) }
+    }
+}
+
+private fun List<FeedItem>.tagTitlesById(): Map<String, String> = buildMap {
+    this@tagTitlesById.forEach { item ->
+        item.tags.forEach { tag -> putIfAbsent(tag.id, tag.title) }
+    }
+}
+
+private fun Int?.orZero(): Int = this ?: 0
+
+private fun FeedIntent.logSummary(): String = when (this) {
+    FeedIntent.Refresh -> "Refresh"
+    FeedIntent.LoadMore -> "LoadMore"
+    FeedIntent.DismissError -> "DismissError"
+    is FeedIntent.SelectFeed -> "SelectFeed feedId=$feedId"
+    is FeedIntent.SelectDestination -> "SelectDestination destination=$destination"
+    is FeedIntent.SelectArticle -> "SelectArticle articleId=$articleId"
+    FeedIntent.CloseArticle -> "CloseArticle"
+    is FeedIntent.SelectHub -> "SelectHub hubId=$hubId title=$title"
+    is FeedIntent.SelectTag -> "SelectTag tagId=$tagId title=$title"
+    is FeedIntent.ToggleFavoriteTag -> "ToggleFavoriteTag tagId=$tagId"
+    is FeedIntent.ToggleFavoriteHub -> "ToggleFavoriteHub hubId=$hubId"
+    is FeedIntent.SelectPublicationSection -> "SelectPublicationSection section=$section"
+    is FeedIntent.UpdateSearchQuery -> "UpdateSearchQuery length=${query.length}"
+    FeedIntent.ClearFilters -> "ClearFilters"
+    is FeedIntent.SetShowUnreadOnly -> "SetShowUnreadOnly value=$showUnreadOnly"
+    is FeedIntent.SetFeedCardMode -> "SetFeedCardMode mode=$mode"
+    is FeedIntent.SetFeedSortMode -> "SetFeedSortMode mode=$mode"
+    is FeedIntent.UpdateSettings -> "UpdateSettings"
+    is FeedIntent.SaveCustomFeed -> "SaveCustomFeed id=$id title=$title url=$url"
+    is FeedIntent.RemoveCustomFeed -> "RemoveCustomFeed id=$id"
+    is FeedIntent.OpenArticleUrl -> "OpenArticleUrl url=$url"
+    is FeedIntent.OpenHubFeed -> "OpenHubFeed slug=$slug title=$title"
+    is FeedIntent.ToggleArticleBookmark -> "ToggleArticleBookmark articleId=$articleId"
+}
 
 private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
 
 private const val MAX_CONTEXT_FILTER_CHIPS = 16
+private const val TAG = "FeedViewModel"
 
 private fun FeedSettings.toFeedCardMode(): FeedCardMode =
     FeedCardMode.entries.firstOrNull { it.name == feedCardMode }
@@ -809,7 +1008,9 @@ private fun List<FeedDescriptor>.findHubFeed(slug: String): FeedDescriptor? {
     val normalizedSlug = slug.toHubSlug()
     return firstOrNull { feed ->
         (feed.kind == FeedKind.Hub || feed.kind == FeedKind.Custom) &&
-            (feed.url.toHubSlug() == normalizedSlug || feed.id == HabrApiSource.FeedIds.hub(normalizedSlug))
+                (feed.url.toHubSlug() == normalizedSlug || feed.id == HabrApiSource.FeedIds.hub(
+                    normalizedSlug
+                ))
     }
 }
 

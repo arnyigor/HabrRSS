@@ -77,6 +77,11 @@ class InMemoryFeedDao : FeedDao {
         notifyChanged()
     }
 
+    override suspend fun deleteByFeed(feedId: String) {
+        items.removeAll { it.feedId == feedId }
+        notifyChanged()
+    }
+
     override suspend fun deleteAll() {
         items.clear()
         notifyChanged()

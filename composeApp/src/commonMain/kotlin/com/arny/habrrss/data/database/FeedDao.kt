@@ -47,6 +47,9 @@ interface FeedDao {
     @Query("DELETE FROM feed_items WHERE feedId = :feedId AND fetchedAt < :timestamp")
     suspend fun deleteOldByFeed(feedId: String, timestamp: Long)
 
+    @Query("DELETE FROM feed_items WHERE feedId = :feedId")
+    suspend fun deleteByFeed(feedId: String)
+
     /** Clears only server/cache rows. Local user state is stored in separate tables. */
     @Query("DELETE FROM feed_items")
     suspend fun deleteAll()

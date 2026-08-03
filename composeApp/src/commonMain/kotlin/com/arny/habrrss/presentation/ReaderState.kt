@@ -3,6 +3,7 @@ package com.arny.habrrss.presentation
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.CachePolicy
 import com.arny.habrrss.domain.models.FeedDescriptor
+import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.presentation.feed.HabrPublicationSection
@@ -40,6 +41,7 @@ data class ReaderUiState(
     val canLoadMore: Boolean = false,
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),
+    val feedScrollToTopRequest: Long = 0L,
 ) {
 
     val activeFilterCount: Int
@@ -92,6 +94,16 @@ data class ReaderUiState(
     val selectedFeedTitle: String
         get() = feeds.firstOrNull { it.id == activeFeedId }?.title ?: "Лента"
 
+    val addedHubSlugs: Set<String>
+        get() = feeds
+            .asSequence()
+            .filter { it.kind == FeedKind.Hub || it.kind == FeedKind.Custom }
+            .mapNotNull { feed ->
+                feed.url.toHubSlug().takeIf { slug -> slug.isNotBlank() }
+                    ?: feed.id.removePrefix("habr-hub:").substringBefore(':').takeIf { slug -> slug.isNotBlank() }
+            }
+            .toSet()
+
     val feedListStateKey: String
         get() = listOf(
             selectedDestination.name,
@@ -130,6 +142,21 @@ private data class HubTitle(val id: String, val title: String)
 private data class TagTitle(val id: String, val title: String)
 
 private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
+
+private fun String.toHubSlug(): String {
+    val value = trim().replace("&amp;", "&").trimEnd('/')
+    val slug = when {
+        "/hubs/" in value -> value.substringAfterLast("/hubs/")
+        "/hub/" in value -> value.substringAfterLast("/hub/")
+        else -> value
+    }
+    return slug
+        .substringBefore('/')
+        .substringBefore('?')
+        .trim()
+        .replace(Regex("\\s+"), "_")
+        .lowercase()
+}
 
 enum class ReaderDestination(val label: String) {
     Feed("Лента"),

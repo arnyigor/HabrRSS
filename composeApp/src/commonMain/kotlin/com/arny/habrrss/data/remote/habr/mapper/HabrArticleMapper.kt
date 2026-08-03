@@ -42,11 +42,12 @@ class HabrArticleMapper {
             tags = emptyList(),
             hubs = dto.hubs.mapNotNull { hub ->
                 val titleValue = hub.title ?: hub.titleHtml.toPlainText()
-                val id = hub.alias ?: hub.id ?: titleValue.stableMetadataId(prefix = "hub")
+                val slug = hub.alias.toValidHabrHubSlugOrNull()
+                val id = slug ?: hub.id?.takeIf(String::isNotBlank) ?: titleValue.stableMetadataId(prefix = "hub")
                 if (id.isNullOrBlank() || titleValue.isNullOrBlank()) {
                     null
                 } else {
-                    Hub(id = id, title = titleValue, slug = hub.alias)
+                    Hub(id = id, title = titleValue, slug = slug)
                 }
             },
             rating = dto.statistics?.score?.toString(),
@@ -73,11 +74,12 @@ class HabrArticleMapper {
             tags = emptyList(),
             hubs = dto.hubs.mapNotNull { hub ->
                 val titleValue = hub.title ?: hub.titleHtml.toPlainText()
-                val id = hub.alias ?: hub.id ?: titleValue.stableMetadataId(prefix = "hub")
+                val slug = hub.alias.toValidHabrHubSlugOrNull()
+                val id = slug ?: hub.id?.takeIf(String::isNotBlank) ?: titleValue.stableMetadataId(prefix = "hub")
                 if (id.isNullOrBlank() || titleValue.isNullOrBlank()) {
                     null
                 } else {
-                    Hub(id = id, title = titleValue, slug = hub.alias)
+                    Hub(id = id, title = titleValue, slug = slug)
                 }
             },
             blocks = blocks,
@@ -115,4 +117,12 @@ class HabrArticleMapper {
         val normalized = trim().replace(Regex("\\s+"), " ").lowercase()
         return "$prefix-${normalized.hashCode()}"
     }
+
+    private fun String?.toValidHabrHubSlugOrNull(): String? {
+        val slug = this?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return slug.takeUnless { it.isGeneratedHubId() }
+    }
+
+    private fun String.isGeneratedHubId(): Boolean =
+        matches(Regex("hub--?\\d+")) || matches(Regex("-?\\d+"))
 }

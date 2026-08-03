@@ -19,6 +19,13 @@ import com.arny.habrrss.domain.models.PageCursor
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.source.FeedSource
+import com.arny.habrrss.domain.source.SourceUnavailableException
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -148,6 +155,76 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun habrHubCustomFeedUsesRssLatestAndApiArchivePrefetch() = runTest {
+        val preferencesRepository = DefaultPreferencesRepository()
+        val feedId = HabrApiSource.FeedIds.hub("android_dev")
+        val primarySource = MutableRemoteFeedSource(
+            items = listOf(
+                habrApiItem(feedId = feedId, articleId = "1066094", title = "API duplicate", publishedAtEpoch = 90),
+                habrApiItem(feedId = feedId, articleId = "1000000", title = "API archive", publishedAtEpoch = 10),
+            ),
+            nextCursor = PageCursor("2"),
+        )
+        val repository = TechReaderRepository(
+            primarySource = primarySource,
+            feedDao = InMemoryFeedDao(),
+            customRssSource = GenericRssSource(mockRssClient()),
+            preferencesRepository = preferencesRepository,
+        )
+
+        repository.upsertCustomFeed(id = null, title = "Android", url = "android_dev")
+        repository.getFeeds(forceRefresh = true)
+        val page = repository.refreshFeed(feedId, force = true)
+        repository.prefetchHabrHubArchive(feedId)
+        repository.prefetchHabrHubArchive(feedId)
+        val cached = repository.getCachedFeed(feedId)
+
+        assertEquals(
+            listOf("$feedId:habr-1066224", "$feedId:habr-1066094", "$feedId:habr-1000000"),
+            cached.map { it.id },
+        )
+        assertEquals("$feedId:habr-1066224", page.items.first().id)
+        assertEquals("Fresh RSS Android article", page.items.first().title)
+        assertEquals("https://habr.com/ru/articles/1066224/", page.items.first().url)
+        assertEquals(listOf("Разработка мобильных приложений"), page.items.first().hubs.map { it.title })
+        assertEquals(listOf("MDM", "Android Enterprise"), page.items.first().tags.map { it.title })
+        assertEquals("API duplicate", cached.first { it.id == "$feedId:habr-1066094" }.title)
+        assertEquals(1, primarySource.getItemsCalls)
+
+        repository.refreshFeed(feedId, force = true)
+        repository.prefetchHabrHubArchive(feedId)
+
+        assertEquals(2, primarySource.getItemsCalls)
+    }
+
+    @Test
+    fun habrHubFeedDropsApiArticlesWithoutSelectedHub() = runTest {
+        val feedId = HabrApiSource.FeedIds.hub("android")
+        val source = MutableRemoteFeedSource(
+            items = listOf(
+                remoteItem(id = "android-article", title = "Android").copy(
+                    hubs = listOf(Hub(id = "android", title = "Android", slug = "android")),
+                ),
+                remoteItem(id = "desktop-article", title = "Desktop").copy(
+                    hubs = listOf(Hub(id = "desktop", title = "Desktop", slug = "desktop")),
+                ),
+            ),
+            nextCursor = PageCursor("2"),
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        val page = repository.refreshFeed(feedId, force = true)
+        val cached = repository.getCachedFeed(feedId)
+
+        assertEquals(listOf("android-article"), page.items.map { it.id })
+        assertEquals(listOf("android-article"), cached.map { it.id })
+        assertTrue(repository.getCachedFeed(HabrApiSource.FeedIds.AllCached).none { it.id == "desktop-article" })
+    }
+
+    @Test
     fun getArticleUsesFullArticleFromArticleContentSource() = runTest {
         val feedDao = InMemoryFeedDao()
         val repository = TechReaderRepository(
@@ -245,7 +322,11 @@ class TechReaderRepositoryTest {
 
 internal class MutableRemoteFeedSource(
     var items: List<FeedItem>,
+    private val nextCursor: PageCursor? = null,
 ) : FeedSource {
+    var getItemsCalls: Int = 0
+        private set
+
     override suspend fun getFeeds(): List<FeedDescriptor> = listOf(
         FeedDescriptor(
             id = "feed",
@@ -257,18 +338,74 @@ internal class MutableRemoteFeedSource(
         ),
     )
 
-    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage = FeedPage(
-        items = items.map { it.copy(feedId = feedId) },
-        nextCursor = null,
-        fromCache = false,
-        updatedAt = "2026-05-01",
-    )
+    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
+        getItemsCalls += 1
+        return FeedPage(
+            items = items.map { it.copy(feedId = feedId) },
+            nextCursor = nextCursor,
+            fromCache = false,
+            updatedAt = "2026-05-01",
+        )
+    }
 
     @Deprecated("Use ArticleContentSource instead")
     override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
 
     override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
 }
+
+private class FailingHabrHubSource : FeedSource {
+    var getItemsCalls: Int = 0
+        private set
+
+    override suspend fun getFeeds(): List<FeedDescriptor> = emptyList()
+
+    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
+        getItemsCalls += 1
+        throw SourceUnavailableException("Primary API failed")
+    }
+
+    @Deprecated("Use ArticleContentSource instead")
+    override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
+
+    override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+}
+
+private fun mockRssClient(): HttpClient = HttpClient(
+    MockEngine { request ->
+        assertEquals(
+            "https://habr.com/ru/rss/hub/android_dev/all/?fl=ru&with_hubs=true&with_tags=true",
+            request.url.toString(),
+        )
+        respond(
+            content = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <rss version="2.0">
+                    <channel>
+                        <item>
+                            <title>Fresh RSS Android article</title>
+                            <link>https://habr.com/ru/articles/1066224/?utm_source=habrahabr&amp;utm_medium=rss</link>
+                            <description><![CDATA[Хабы: Разработка мобильных приложений<br/> Метки: MDM, Android Enterprise<br/> <p>Fresh RSS summary</p>]]></description>
+                            <category>Kotlin</category>
+                            <pubDate>Mon, 03 Aug 2026 17:19:50 GMT</pubDate>
+                            <author>Author</author>
+                        </item>
+                        <item>
+                            <title>RSS duplicate</title>
+                            <link>https://habr.com/ru/articles/1066094/?utm_source=habrahabr&amp;utm_medium=rss</link>
+                            <description><![CDATA[Хабы: Android<br/> Метки: Kotlin<br/> <p>Duplicate RSS summary</p>]]></description>
+                            <category>Kotlin</category>
+                            <pubDate>Mon, 03 Aug 2026 12:44:29 GMT</pubDate>
+                            <author>Author</author>
+                        </item>
+                    </channel>
+                </rss>
+            """.trimIndent(),
+            status = HttpStatusCode.OK,
+            headers = headersOf(HttpHeaders.ContentType, "application/rss+xml"),
+        )
+    },
+)
 
 private fun remoteItem(
     id: String,
@@ -285,6 +422,29 @@ private fun remoteItem(
     publishedAtEpoch = null,
     tags = listOf(Tag("kotlin", "Kotlin")),
     hubs = listOf(Hub("android", "Android")),
+    rating = null,
+    commentsCount = null,
+    isRead = false,
+    isBookmarked = false,
+)
+
+private fun habrApiItem(
+    feedId: String,
+    articleId: String,
+    title: String,
+    publishedAtEpoch: Long,
+): FeedItem = FeedItem(
+    id = "$feedId:habr-$articleId",
+    feedId = feedId,
+    title = title,
+    summary = "Summary $title",
+    url = "https://habr.com/ru/articles/$articleId/",
+    imageUrl = null,
+    author = Author("author", "Author", null),
+    publishedAt = "2026-08-03",
+    publishedAtEpoch = publishedAtEpoch,
+    tags = listOf(Tag("kotlin", "Kotlin")),
+    hubs = listOf(Hub("android_dev", "Разработка мобильных приложений")),
     rating = null,
     commentsCount = null,
     isRead = false,

@@ -42,6 +42,7 @@ internal fun ArticleHeader(
     showBack: Boolean,
     favoriteTagIds: Set<String>,
     favoriteHubIds: Set<String>,
+    addedHubSlugs: Set<String>,
     onBack: () -> Unit,
     onHubSelected: (String) -> Unit,
     onHubFeedRequested: (String, String) -> Unit,
@@ -144,17 +145,26 @@ internal fun ArticleHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             article.hubs.forEach { hub ->
+                val hubSlug = hub.slug.toValidHabrHubSlugOrNull()
                 HubArticleChip(
                     hub = hub,
-                    favorite = favoriteHubIds.contains(hub.id),
+                    favorite = hubSlug in addedHubSlugs || favoriteHubIds.contains(hub.id),
                     onClick = {
-                        if (hub.slug.isNullOrBlank()) {
+                        if (hubSlug == null) {
                             onHubSelected(hub.id)
+                        } else if (hubSlug in addedHubSlugs) {
+                            onHubFeedRequested(hubSlug, hub.title)
                         } else {
-                            pendingHub = hub
+                            pendingHub = hub.copy(slug = hubSlug)
                         }
                     },
-                    onFavoriteClick = { onFavoriteHubToggled(hub.id) },
+                    onFavoriteClick = {
+                        if (hubSlug == null) {
+                            onHubSelected(hub.id)
+                        } else {
+                            onHubFeedRequested(hubSlug, hub.title)
+                        }
+                    },
                 )
             }
         }
@@ -178,6 +188,26 @@ internal fun ArticleHeader(
             }
         }
     }
+}
+
+private fun String.toHubSlug(): String {
+    val value = trim().replace("&amp;", "&").trimEnd('/')
+    val slug = when {
+        "/hubs/" in value -> value.substringAfterLast("/hubs/")
+        "/hub/" in value -> value.substringAfterLast("/hub/")
+        else -> value
+    }
+    return slug
+        .substringBefore('/')
+        .substringBefore('?')
+        .trim()
+        .replace(Regex("\\s+"), "_")
+        .lowercase()
+}
+
+private fun String?.toValidHabrHubSlugOrNull(): String? {
+    val slug = this?.toHubSlug()?.takeIf { it.isNotBlank() } ?: return null
+    return slug.takeUnless { it.matches(Regex("hub--?\\d+")) || it.matches(Regex("-?\\d+")) }
 }
 
 @Composable

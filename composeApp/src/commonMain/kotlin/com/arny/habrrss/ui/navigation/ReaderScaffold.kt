@@ -18,14 +18,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.AndroidUiModes.UI_MODE_NIGHT_YES
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
+import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.domain.models.FeedSettings
 import com.arny.habrrss.domain.models.ThemeMode
 import com.arny.habrrss.navigation.Screen
@@ -68,21 +66,25 @@ internal fun ReaderApp(
             if (isWide && currentRoute is Screen.Article) backStackManager.currentTab else currentRoute
         val isArticleRoute = !isWide && currentRoute is Screen.Article
         val closeArticle = {
+            AppLog.i(TAG, "closeArticle current=$currentRoute")
             viewModel.dispatch(FeedIntent.CloseArticle)
             articleViewModel.close()
         }
         val navigateToTopLevel: (Screen) -> Unit = { screen ->
+            AppLog.i(TAG, "navigateToTopLevel screen=$screen current=$currentRoute")
             backStackManager.selectTopLevel(screen)
             viewModel.dispatch(FeedIntent.SelectDestination(screen.toDestination()))
             closeArticle()
         }
         val popBackStack: () -> Unit = {
+            AppLog.i(TAG, "popBackStack current=${backStackManager.currentRoute}")
             val removed = backStackManager.popBackStack()
             if (removed is Screen.Article) {
                 closeArticle()
             }
         }
         val openArticle: (String) -> Unit = { articleId ->
+            AppLog.i(TAG, "openArticle articleId=$articleId isWide=$isWide current=$currentRoute")
             viewModel.dispatch(FeedIntent.SelectArticle(articleId))
             articleViewModel.openArticle(articleId)
             if (!isWide) {
@@ -145,6 +147,8 @@ internal fun ReaderApp(
         )
     }
 }
+
+private const val TAG = "Navigation"
 
 /** Stateless UI shell: all state and actions are hoisted for previews and tests. */
 @Composable
@@ -240,7 +244,6 @@ private fun ReaderWideLayout(
             if (!isArticleRoute) {
                 ReaderTopBar(
                     state = state,
-                    onRefresh = onRefresh,
                     onSearchChanged = onSearchChanged
                 )
             }
@@ -263,6 +266,7 @@ private fun ReaderWideLayout(
                     settings = state.settings,
                     favoriteTagIds = state.favoriteTagIds,
                     favoriteHubIds = state.favoriteHubIds,
+                    addedHubSlugs = state.addedHubSlugs,
                     onBack = onCloseArticle,
                     onHubSelected = { hubId -> onHubSelected(hubId) },
                     onHubFeedRequested = onHubFeedRequested,
@@ -328,7 +332,6 @@ private fun ReaderMobileLayout(
             if (!isArticleRoute) {
                 ReaderTopBar(
                     state = state,
-                    onRefresh = onRefresh,
                     onSearchChanged = onSearchChanged
                 )
             }
@@ -458,7 +461,6 @@ private fun SourcesRoute(
     SourceScreen(
         feeds = state.feeds,
         activeFeedId = state.activeFeedId,
-        favoriteHubs = state.favoriteHubs,
         favoriteTags = state.favoriteTags,
         onFeedSelected = { feedId ->
             navigateToFeed()
@@ -474,7 +476,6 @@ private fun SourcesRoute(
             )
         },
         onCustomFeedRemoved = { viewModel.dispatch(FeedIntent.RemoveCustomFeed(it)) },
-        onFavoriteHubRemoved = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
         onFavoriteTagRemoved = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
     )
 }
@@ -515,7 +516,6 @@ private fun SettingsRoute(
                 )
             })
         },
-        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
         onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
     )
 }
@@ -553,6 +553,7 @@ private fun ArticleRoute(
             settings = state.settings,
             favoriteTagIds = state.favoriteTagIds,
             favoriteHubIds = state.favoriteHubIds,
+            addedHubSlugs = state.addedHubSlugs,
             onBack = onBack,
             onHubSelected = { hubId ->
                 viewModel.dispatch(FeedIntent.SelectHub(hubId))

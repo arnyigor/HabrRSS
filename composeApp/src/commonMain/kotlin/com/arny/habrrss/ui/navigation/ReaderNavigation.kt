@@ -7,7 +7,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -106,41 +105,12 @@ internal fun Screen.toDestination(): ReaderDestination = when (this) {
 @Composable
 internal fun ReaderTopBar(
     state: ReaderUiState,
-    onRefresh: () -> Unit,
     onSearchChanged: (String) -> Unit,
 ) {
     val showSearch = state.selectedDestination == ReaderDestination.Feed ||
         state.selectedDestination == ReaderDestination.Bookmarks
-    val title = when (state.selectedDestination) {
-        ReaderDestination.Feed -> state.selectedFeedTitle
-        ReaderDestination.Bookmarks -> state.selectedDestination.label
-        ReaderDestination.Search -> state.selectedDestination.label
-        ReaderDestination.Sources -> state.selectedDestination.label
-        ReaderDestination.Settings -> state.selectedDestination.label
-    }
-
     Surface(color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth()) {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
+        Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
             if (showSearch) {
                 OutlinedTextField(
                     value = state.searchQuery,

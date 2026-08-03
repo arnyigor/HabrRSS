@@ -44,6 +44,9 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun deleteOldByFeed(feedId: String, timestamp: Long) =
         feedDao.deleteOldByFeed(feedId, timestamp)
 
+    override suspend fun deleteByFeed(feedId: String) =
+        feedDao.deleteByFeed(feedId)
+
     override suspend fun deleteAll() =
         feedDao.deleteAll()
 
