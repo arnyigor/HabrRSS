@@ -17,6 +17,9 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity>
 
+    @Query("SELECT MAX(fetchedAt) FROM feed_items WHERE feedId = :feedId")
+    suspend fun getNewestFetchedAtByFeed(feedId: String): Long?
+
     @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     fun getAllCached(): Flow<List<FeedItemEntity>>
 

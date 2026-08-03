@@ -28,6 +28,9 @@ class FileBackedFeedDao(
     override suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity> =
         items.byFeed(feedId)
 
+    override suspend fun getNewestFetchedAtByFeed(feedId: String): Long? =
+        items.filter { it.feedId == feedId }.maxOfOrNull { it.fetchedAt }
+
     override fun getAllCached(): Flow<List<FeedItemEntity>> =
         version.map { items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt } }
 

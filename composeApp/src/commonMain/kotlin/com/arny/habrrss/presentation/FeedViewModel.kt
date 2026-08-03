@@ -135,7 +135,7 @@ class FeedViewModel(
         observeBookmarks()
         observeLocalFavorites()
         resetPager(activeFeedId)
-        refresh()
+        refresh(force = false)
     }
 
     private suspend fun migrateFavoriteMetadataFromPreferences() {
@@ -206,12 +206,12 @@ class FeedViewModel(
         }.flow.cachedIn(viewModelScope)
     }
 
-    fun refresh() {
+    fun refresh(force: Boolean = true) {
         val feedId = mutableState.value.activeFeedId ?: return
         viewModelScope.launch {
             runLoading {
                 repository.getFeeds(forceRefresh = true).also { feeds -> updateState { it.copy(feeds = feeds) } }
-                repository.refreshFeed(feedId)
+                repository.refreshFeed(feedId, force = force)
                 updateState { it.copy(canLoadMore = repository.hasMorePages(feedId), errorMessage = null) }
             }
         }
@@ -242,7 +242,7 @@ class FeedViewModel(
                     errorMessage = null,
                 )
             }
-            refresh()
+            refresh(force = false)
         }
     }
 
@@ -525,7 +525,7 @@ class FeedViewModel(
                         errorMessage = null,
                     )
                 }
-                repository.refreshFeed(feed.id)
+                repository.refreshFeed(feed.id, force = false)
                 updateState { it.copy(canLoadMore = repository.hasMorePages(feed.id), errorMessage = null) }
             }
         }

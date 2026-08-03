@@ -64,7 +64,7 @@ class TechReaderRepositoryTest {
         assertEquals(firstFetchedAt, dao.getById("one")?.fetchedAt)
 
         source.items = listOf(remoteItem(id = "one", title = "New title"))
-        repository.refreshFeed("feed")
+        repository.refreshFeed("feed", force = true)
 
         assertEquals("New title", dao.getById("one")?.title)
         assertNotNull(dao.getById("stale"))

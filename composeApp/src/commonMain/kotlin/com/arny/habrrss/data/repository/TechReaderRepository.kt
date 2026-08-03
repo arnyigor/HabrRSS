@@ -84,7 +84,7 @@ class TechReaderRepository(
         return cachedFeeds
     }
 
-    suspend fun refreshFeed(feedId: String): FeedPage {
+    suspend fun refreshFeed(feedId: String, force: Boolean = false): FeedPage {
         if (feedId == HabrApiSource.FeedIds.AllCached) {
             return FeedPage(
                 items = getCachedFeed(feedId),
@@ -94,8 +94,29 @@ class TechReaderRepository(
             )
         }
 
+        val cached = getCachedFeed(feedId)
         val previousCursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor()
-        val page = loadFeedPageWithFallback(feedId, page = null)
+        if (!force && cached.isNotEmpty() && isCacheFresh(feedId)) {
+            feedCursorsFlow.update { it + (feedId to previousCursor) }
+            return FeedPage(
+                items = cached,
+                nextCursor = previousCursor,
+                fromCache = true,
+                updatedAt = feedDao.getNewestFetchedAtByFeed(feedId)?.toString(),
+            )
+        }
+
+        val page = try {
+            loadFeedPageWithFallback(feedId, page = null)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: HabrRemoteException.ContractChanged) {
+            return cachedFeedOrThrow(feedId, cached, previousCursor, error)
+        } catch (error: HabrRemoteException.RateLimited) {
+            return cachedFeedOrThrow(feedId, cached, previousCursor, error)
+        } catch (error: HabrRemoteException.Server) {
+            return cachedFeedOrThrow(feedId, cached, previousCursor, error)
+        }
         val items = page.items.applyPersistedLocalState()
         val entities = page.items.changedRemoteEntities()
         if (entities.isNotEmpty()) {
@@ -127,7 +148,17 @@ class TechReaderRepository(
         if (feedId == HabrApiSource.FeedIds.AllCached) return null
         val cursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor() ?: return null
 
-        val page = loadFeedPageWithFallback(feedId, page = cursor)
+        val page = try {
+            loadFeedPageWithFallback(feedId, page = cursor)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: HabrRemoteException.ContractChanged) {
+            return nullIfCachedFeedExistsOrThrow(feedId, error)
+        } catch (error: HabrRemoteException.RateLimited) {
+            return nullIfCachedFeedExistsOrThrow(feedId, error)
+        } catch (error: HabrRemoteException.Server) {
+            return nullIfCachedFeedExistsOrThrow(feedId, error)
+        }
         val items = page.items.applyPersistedLocalState()
         val entities = page.items.changedRemoteEntities()
         if (entities.isNotEmpty()) {
@@ -382,6 +413,33 @@ class TechReaderRepository(
     fun requireFirstFeedId(): String {
         return cachedFeeds.firstOrNull()?.id
             ?: throw SourceUnavailableException("No feed descriptors are available.")
+    }
+
+    private suspend fun isCacheFresh(feedId: String): Boolean {
+        val fetchedAt = feedDao.getNewestFetchedAtByFeed(feedId) ?: return false
+        return Clock.System.now().toEpochMilliseconds() - fetchedAt < FEED_REFRESH_TTL_MILLIS
+    }
+
+    private suspend fun cachedFeedOrThrow(
+        feedId: String,
+        cached: List<FeedItem>,
+        nextCursor: PageCursor?,
+        error: Exception,
+    ): FeedPage {
+        if (cached.isEmpty()) throw error
+        feedCursorsFlow.update { it + (feedId to nextCursor) }
+        return FeedPage(
+            items = cached,
+            nextCursor = nextCursor,
+            fromCache = true,
+            updatedAt = feedDao.getNewestFetchedAtByFeed(feedId)?.toString(),
+        )
+    }
+
+    private suspend fun nullIfCachedFeedExistsOrThrow(feedId: String, error: Exception): FeedPage? {
+        if (getCachedFeed(feedId).isEmpty()) throw error
+        feedCursorsFlow.update { it + (feedId to null) }
+        return null
     }
 
     private fun allCachedDescriptor(): FeedDescriptor = FeedDescriptor(
@@ -746,3 +804,4 @@ private fun FeedItemEntity.hubs(json: Json): Set<String> =
 private const val RELATED_ARTICLES_LIMIT = 6
 private const val TAG_MATCH_WEIGHT = 2
 private const val HUB_MATCH_WEIGHT = 1
+private const val FEED_REFRESH_TTL_MILLIS = 60L * 60L * 1_000L
