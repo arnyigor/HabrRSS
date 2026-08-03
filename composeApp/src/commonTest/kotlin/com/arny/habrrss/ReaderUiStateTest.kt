@@ -1,6 +1,8 @@
 package com.arny.habrrss
 
 import com.arny.habrrss.domain.models.Author
+import com.arny.habrrss.domain.models.FeedDescriptor
+import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.Tag
@@ -97,6 +99,33 @@ class ReaderUiStateTest {
         assertEquals(1, state.unreadCount)
         assertTrue(state.availableHubs.containsAll(listOf("Android", "Desktop")))
         assertTrue(state.availableTags.containsAll(listOf("Kotlin", "Compose")))
+    }
+
+    @Test
+    fun addedHubSlugsComeFromAddedFeedDescriptors() {
+        val state = ReaderUiState(
+            feeds = listOf(
+                FeedDescriptor(
+                    id = "habr-hub:mobile_dev:alltime",
+                    title = "Mobile",
+                    sourceTitle = "Habr",
+                    url = "https://habr.com/ru/hubs/mobile_dev/",
+                    description = "Mobile feed",
+                    kind = FeedKind.Hub,
+                ),
+                FeedDescriptor(
+                    id = "habr-all",
+                    title = "All",
+                    sourceTitle = "Habr",
+                    url = "https://habr.com/ru/articles/",
+                    description = "All feed",
+                    kind = FeedKind.All,
+                ),
+            ),
+            favoriteHubIds = setOf("android_dev"),
+        )
+
+        assertEquals(setOf("mobile_dev"), state.addedHubSlugs)
     }
 
     private fun item(

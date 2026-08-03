@@ -1,10 +1,13 @@
 package com.arny.habrrss.data.article
 
+import com.arny.habrrss.data.remote.habr.HabrApiClient
+import com.arny.habrrss.data.remote.habr.mapper.HabrArticleMapper
 import com.arny.habrrss.data.rss.HtmlArticleParser
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.CommentNode
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.source.ArticleCommentsSource
 import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.util.toEpochMillis
@@ -12,6 +15,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,15 +29,36 @@ import kotlinx.serialization.json.Json
 class HabrArticleContentSource(
     private val client: HttpClient,
     private val extractor: HabrArticleContentExtractor = HabrArticleContentExtractor(),
+    private val api: HabrApiClient = HabrApiClient(client),
+    private val mapper: HabrArticleMapper = HabrArticleMapper(),
 ) : ArticleContentSource, ArticleCommentsSource {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun getArticleByUrl(url: String): ArticleContent {
         val normalizedUrl = normalizeArticleUrl(url)
+        val articleId = extractArticleId(normalizedUrl)
+
+        if (articleId != null) {
+            try {
+                val apiArticle = mapper.toArticleContent(
+                    dto = api.getArticle(articleId.toLong()),
+                    articleUrl = normalizedUrl,
+                )
+                return apiArticle.withHtmlHubSlugsIfNeeded(
+                    articleId = articleId,
+                    normalizedUrl = normalizedUrl,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Fallback to the public HTML page when the internal API contract changes or is unavailable.
+            }
+        }
+
         val html = client.get(normalizedUrl).bodyAsText()
         return extractor.extract(
-            articleId = extractArticleId(normalizedUrl) ?: "",
+            articleId = articleId ?: "",
             articleUrl = normalizedUrl,
             html = html,
         )
@@ -138,6 +163,45 @@ class HabrArticleContentSource(
             children = children.map { it.toDomain() },
         )
     }
+
+    private suspend fun ArticleContent.withHtmlHubSlugsIfNeeded(
+        articleId: String,
+        normalizedUrl: String,
+    ): ArticleContent {
+        if (hubs.isEmpty() || hubs.all { !it.slug.isNullOrBlank() }) return this
+        val htmlArticle = try {
+            extractor.extract(
+                articleId = articleId,
+                articleUrl = normalizedUrl,
+                html = client.get(normalizedUrl).bodyAsText(),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return this
+        }
+        return copy(hubs = hubs.mergeHubSlugs(htmlArticle.hubs))
+    }
+
+    private fun List<Hub>.mergeHubSlugs(hubsWithSlugs: List<Hub>): List<Hub> {
+        if (hubsWithSlugs.isEmpty()) return this
+        val byTitle = hubsWithSlugs.associateBy { it.title.normalizedHubTitle() }
+        val byId = hubsWithSlugs.associateBy { it.id }
+        return map { hub ->
+            if (!hub.slug.isNullOrBlank()) {
+                hub
+            } else {
+                val withSlug = byId[hub.id] ?: byTitle[hub.title.normalizedHubTitle()]
+                if (withSlug?.slug.isNullOrBlank()) hub else hub.copy(slug = withSlug.slug)
+            }
+        }
+    }
+
+    private fun String.normalizedHubTitle(): String =
+        replace('\u00A0', ' ')
+            .trim()
+            .replace(Regex("\\s+"), " ")
+            .lowercase()
 
     private fun normalizeArticleUrl(url: String): String {
         val value = url.replace("&amp;", "&").trim()

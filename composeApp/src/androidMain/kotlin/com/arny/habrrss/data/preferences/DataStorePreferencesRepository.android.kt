@@ -33,6 +33,8 @@ class DataStorePreferencesRepository(
             cacheSizeMb = FeedSettings.defaults().cacheSizeMb,
             autoRefreshMinutes = FeedSettings.defaults().autoRefreshMinutes,
             openLinksInsideApp = prefs.getBoolean("open_links_inside_app", false),
+            feedCardMode = prefs.getString("feed_card_mode", null)
+                ?: if (prefs.getBoolean("compact_cards", false)) "CompactText" else "Comfortable",
         )
     }
 
@@ -69,6 +71,11 @@ class DataStorePreferencesRepository(
     override suspend fun setCompactCards(enabled: Boolean) {
         prefs.edit().putBoolean("compact_cards", enabled).apply()
         _preferences.value = _preferences.value.copy(compactCards = enabled)
+    }
+
+    override suspend fun setFeedCardMode(mode: String) {
+        prefs.edit().putString("feed_card_mode", mode).apply()
+        _preferences.value = _preferences.value.copy(feedCardMode = mode)
     }
 
     override suspend fun setOpenLinksInsideApp(enabled: Boolean) {

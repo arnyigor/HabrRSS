@@ -17,6 +17,15 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity>
 
+    @Query("SELECT MAX(fetchedAt) FROM feed_items WHERE feedId = :feedId")
+    suspend fun getNewestFetchedAtByFeed(feedId: String): Long?
+
+    @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    fun getAllCached(): Flow<List<FeedItemEntity>>
+
+    @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    suspend fun getAllCachedOnce(): List<FeedItemEntity>
+
     @Query("SELECT * FROM feed_items WHERE id = :id")
     suspend fun getById(id: String): FeedItemEntity?
 
@@ -37,6 +46,9 @@ interface FeedDao {
 
     @Query("DELETE FROM feed_items WHERE feedId = :feedId AND fetchedAt < :timestamp")
     suspend fun deleteOldByFeed(feedId: String, timestamp: Long)
+
+    @Query("DELETE FROM feed_items WHERE feedId = :feedId")
+    suspend fun deleteByFeed(feedId: String)
 
     /** Clears only server/cache rows. Local user state is stored in separate tables. */
     @Query("DELETE FROM feed_items")
@@ -97,5 +109,16 @@ interface FeedDao {
 
     @Query("DELETE FROM favorite_hubs WHERE hubId = :hubId")
     suspend fun deleteFavoriteHub(hubId: String)
+
+    // ---------- Remote sync state ----------
+
+    @Query("SELECT * FROM sync_state WHERE sourceKey = :sourceKey")
+    suspend fun getSyncState(sourceKey: String): SyncStateEntity?
+
+    @Query("SELECT * FROM sync_state WHERE sourceKey = :sourceKey")
+    fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSyncState(state: SyncStateEntity)
 
 }

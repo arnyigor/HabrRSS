@@ -47,7 +47,7 @@ fun App(initialArticleUrl: String? = null) {
 }
 
 @Composable
-private fun ReaderTheme(
+fun ReaderTheme(
     settings: FeedSettings,
     content: @Composable () -> Unit,
 ) {

@@ -14,6 +14,15 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity> =
         feedDao.getByFeedOnce(feedId)
 
+    override suspend fun getNewestFetchedAtByFeed(feedId: String): Long? =
+        feedDao.getNewestFetchedAtByFeed(feedId)
+
+    override fun getAllCached(): Flow<List<FeedItemEntity>> =
+        feedDao.getAllCached()
+
+    override suspend fun getAllCachedOnce(): List<FeedItemEntity> =
+        feedDao.getAllCachedOnce()
+
     override suspend fun getById(id: String): FeedItemEntity? =
         feedDao.getById(id)
 
@@ -34,6 +43,9 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
 
     override suspend fun deleteOldByFeed(feedId: String, timestamp: Long) =
         feedDao.deleteOldByFeed(feedId, timestamp)
+
+    override suspend fun deleteByFeed(feedId: String) =
+        feedDao.deleteByFeed(feedId)
 
     override suspend fun deleteAll() =
         feedDao.deleteAll()
@@ -91,5 +103,14 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
 
     override suspend fun deleteFavoriteHub(hubId: String) =
         feedDao.deleteFavoriteHub(hubId)
+
+    override suspend fun getSyncState(sourceKey: String): SyncStateEntity? =
+        feedDao.getSyncState(sourceKey)
+
+    override fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?> =
+        feedDao.observeSyncState(sourceKey)
+
+    override suspend fun upsertSyncState(state: SyncStateEntity) =
+        feedDao.upsertSyncState(state)
 
 }

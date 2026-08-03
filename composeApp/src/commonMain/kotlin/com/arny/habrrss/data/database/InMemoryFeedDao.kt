@@ -14,6 +14,7 @@ class InMemoryFeedDao : FeedDao {
     private val favoriteArticles = mutableMapOf<String, FavoriteArticleEntity>()
     private val favoriteTags = mutableMapOf<String, FavoriteTagEntity>()
     private val favoriteHubs = mutableMapOf<String, FavoriteHubEntity>()
+    private val syncStates = mutableMapOf<String, SyncStateEntity>()
     private val version = MutableStateFlow(0)
 
     override fun getByFeed(feedId: String): Flow<List<FeedItemEntity>> =
@@ -21,6 +22,15 @@ class InMemoryFeedDao : FeedDao {
 
     override suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity> =
         items.byFeed(feedId)
+
+    override suspend fun getNewestFetchedAtByFeed(feedId: String): Long? =
+        items.filter { it.feedId == feedId }.maxOfOrNull { it.fetchedAt }
+
+    override fun getAllCached(): Flow<List<FeedItemEntity>> =
+        version.map { items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt } }
+
+    override suspend fun getAllCachedOnce(): List<FeedItemEntity> =
+        items.sortedByDescending { it.publishedAtEpoch ?: it.fetchedAt }
 
     override suspend fun getById(id: String): FeedItemEntity? =
         items.firstOrNull { it.id == id }
@@ -64,6 +74,11 @@ class InMemoryFeedDao : FeedDao {
 
     override suspend fun deleteOldByFeed(feedId: String, timestamp: Long) {
         items.removeAll { it.feedId == feedId && it.fetchedAt < timestamp }
+        notifyChanged()
+    }
+
+    override suspend fun deleteByFeed(feedId: String) {
+        items.removeAll { it.feedId == feedId }
         notifyChanged()
     }
 
@@ -131,6 +146,17 @@ class InMemoryFeedDao : FeedDao {
 
     override suspend fun deleteFavoriteHub(hubId: String) {
         favoriteHubs.remove(hubId)
+        notifyChanged()
+    }
+
+    override suspend fun getSyncState(sourceKey: String): SyncStateEntity? =
+        syncStates[sourceKey]
+
+    override fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?> =
+        version.map { syncStates[sourceKey] }
+
+    override suspend fun upsertSyncState(state: SyncStateEntity) {
+        syncStates[state.sourceKey] = state
         notifyChanged()
     }
 

@@ -1,5 +1,6 @@
 package com.arny.habrrss.data.rss
 
+import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.CommentNode
@@ -27,6 +28,7 @@ class GenericRssSource(
     constructor(descriptors: List<FeedDescriptor>) : this(client = null, descriptors = descriptors)
 
     fun setFeeds(feeds: List<FeedDescriptor>) {
+        AppLog.i(TAG, "setFeeds count=${feeds.size} ids=${feeds.take(8).joinToString { it.id }}")
         descriptors = feeds
     }
 
@@ -35,15 +37,20 @@ class GenericRssSource(
     override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
         val httpClient = client ?: return emptyPage()
         val descriptor = descriptors.firstOrNull { it.id == feedId } ?: return emptyPage()
-        val xml = httpClient.get(descriptor.url).bodyAsText()
-        val doc = Ksoup.parse(xml, Parser.xmlParser())
-        val items = doc.select("item, entry").map { it.toFeedItem(feedId) }
-        return FeedPage(
-            items = items,
-            nextCursor = null,
-            fromCache = false,
-            updatedAt = "${Clock.System.now().toEpochMilliseconds()}",
-        )
+        return AppLog.measureSuspend(TAG, "getItems feedId=$feedId url=${descriptor.url}") {
+            val xml = httpClient.get(descriptor.url).bodyAsText()
+            val doc = Ksoup.parse(xml, Parser.xmlParser())
+            val items = doc.select("item, entry")
+                .map { it.toFeedItem(feedId, descriptor) }
+                .sortedByDescending { item -> item.publishedAtEpoch ?: Long.MIN_VALUE }
+            AppLog.i(TAG, "rss page loaded feedId=$feedId items=${items.size} bytes=${xml.length}")
+            FeedPage(
+                items = items,
+                nextCursor = null,
+                fromCache = false,
+                updatedAt = "${Clock.System.now().toEpochMilliseconds()}",
+            )
+        }
     }
 
     private fun emptyPage(): FeedPage = FeedPage(
@@ -53,11 +60,12 @@ class GenericRssSource(
         updatedAt = null,
     )
 
-    private fun Element.toFeedItem(feedId: String): FeedItem {
+    private fun Element.toFeedItem(feedId: String, descriptor: FeedDescriptor): FeedItem {
         val title = rssText("title")?.takeIf { it.isNotBlank() } ?: "Без заголовка"
-        val link = rssText("link")
+        val rawLink = rssText("link")
             ?: selectFirst("link")?.attr("href")?.takeIf { it.isNotBlank() }
             ?: ""
+        val link = rawLink.cleanHabrArticleUrl()
         val descriptionHtml = rssHtml("description")
             .ifBlank { rssHtml("content") }
             .ifBlank { rssHtml("summary") }
@@ -65,11 +73,19 @@ class GenericRssSource(
         val categories = select("category").mapNotNull { category ->
             category.text().ifBlank { category.attr("term") }.trim().takeIf { it.isNotBlank() }
         }.distinct()
-        val authorName = rssText("author") ?: selectFirst("author name")?.text()?.trim()
+        val habrHubs = descriptionHtml.extractHabrTerms("Хабы:")
+        val habrTags = descriptionHtml.extractHabrTerms("Метки:")
+        val authorName = rssText("author")
+            ?: rssTextByTagSuffix("creator")
+            ?: selectFirst("author name")?.text()?.trim()
         val publishedAt = rssText("pubDate") ?: rssText("published") ?: rssText("updated")
+        val hubSlug = descriptor.url.habrHubFeedSlug()
+        val hubs = habrHubs
+            .map { Hub(id = it.stableMetadataId("hub"), title = it) }
+            .withSelectedHubSlug(hubSlug, descriptor.title)
 
         return FeedItem(
-            id = link.takeIf { it.isNotBlank() }?.let { "custom-${it.hashCode()}" } ?: "custom-${title.hashCode()}",
+            id = link.toStableItemId(feedId, title),
             feedId = feedId,
             title = title,
             summary = descDoc.text().trim(),
@@ -79,8 +95,8 @@ class GenericRssSource(
             author = authorName?.let { Author(id = "author-${it.hashCode()}", displayName = it, profileUrl = null) },
             publishedAt = publishedAt,
             publishedAtEpoch = publishedAt?.toEpochMillis(),
-            tags = categories.map { Tag(id = "tag-${it.lowercase().hashCode()}", title = it) },
-            hubs = emptyList<Hub>(),
+            tags = (habrTags.ifEmpty { categories }).map { Tag(id = it.stableMetadataId("tag"), title = it) },
+            hubs = hubs,
             rating = null,
             commentsCount = null,
             isRead = false,
@@ -98,6 +114,14 @@ class GenericRssSource(
         return cleanRssText(node.html().ifBlank { node.text() })
     }
 
+    private fun Element.rssTextByTagSuffix(tagSuffix: String): String? {
+        val node = children().firstOrNull { child ->
+            child.tagName().equals(tagSuffix, ignoreCase = true) ||
+                child.tagName().endsWith(":$tagSuffix", ignoreCase = true)
+        } ?: return null
+        return cleanRssText(node.text().ifBlank { node.html() })
+    }
+
     private fun cleanRssText(value: String): String = value.trim()
         .removePrefix("<![CDATA[")
         .removePrefix("![CDATA[")
@@ -105,10 +129,91 @@ class GenericRssSource(
         .removeSuffix("]]")
         .trim()
 
+    private fun String.cleanHabrArticleUrl(): String {
+        val trimmed = trim()
+        if (!trimmed.contains("habr.com", ignoreCase = true) || "/articles/" !in trimmed) return trimmed
+        val articleId = trimmed.habrArticleNumberOrNull() ?: return trimmed
+        return "https://habr.com/ru/articles/$articleId/"
+    }
+
+    private fun String.toStableItemId(feedId: String, title: String): String {
+        val habrArticleId = habrArticleNumberOrNull()?.let { "habr-$it" }
+        return when {
+            habrArticleId != null && feedId == "habr-all" -> habrArticleId
+            habrArticleId != null -> "$feedId:$habrArticleId"
+            isNotBlank() -> "custom-${hashCode()}"
+            else -> "custom-${title.hashCode()}"
+        }
+    }
+
+    private fun String.habrArticleNumberOrNull(): String? =
+        substringBefore("#")
+            .substringBefore("?")
+            .trimEnd('/')
+            .substringAfterLast("/articles/", missingDelimiterValue = "")
+            .substringBefore("/")
+            .takeIf { value -> value.isNotBlank() && value.all(Char::isDigit) }
+
+    private fun String.extractHabrTerms(label: String): List<String> {
+        val start = indexOf(label, ignoreCase = true)
+        if (start < 0) return emptyList()
+        val tail = substring(start + label.length)
+        val rawLine = tail.substringBeforeAny(
+            "<br",
+            "&lt;br",
+            "<p",
+            "&lt;p",
+            "<img",
+            "&lt;img",
+            "Хабы:",
+            "Метки:",
+        )
+        return Ksoup.parseBodyFragment(rawLine).text()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    private fun String.stableMetadataId(prefix: String): String {
+        val normalized = trim().replace(Regex("\\s+"), " ").lowercase()
+        return "$prefix-${normalized.hashCode()}"
+    }
+
+    private fun List<Hub>.withSelectedHubSlug(slug: String?, title: String): List<Hub> {
+        val normalizedSlug = slug?.takeIf { it.isNotBlank() } ?: return this
+        if (any { it.id == normalizedSlug || it.slug == normalizedSlug }) return this
+        if (size == 1) {
+            return listOf(first().copy(id = normalizedSlug, slug = normalizedSlug))
+        }
+        return listOf(Hub(id = normalizedSlug, title = title.ifBlank { normalizedSlug }, slug = normalizedSlug)) + this
+    }
+
+    private fun String.habrHubFeedSlug(): String? =
+        substringBefore("?")
+            .trimEnd('/')
+            .substringAfter("/rss/hub/", missingDelimiterValue = "")
+            .substringBefore("/")
+            .trim()
+            .takeIf { it.isNotBlank() }
+
+    private fun String.substringBeforeAny(vararg delimiters: String): String {
+        val nextIndex = delimiters
+            .asSequence()
+            .map { delimiter -> indexOf(delimiter, ignoreCase = true) }
+            .filter { index -> index >= 0 }
+            .minOrNull()
+        return if (nextIndex == null) this else substring(0, nextIndex)
+    }
+
     @Deprecated("Use ArticleContentSource instead", ReplaceWith("ArticleContentSource"))
     override suspend fun getArticle(articleId: String): ArticleContent {
         throw SourceUnavailableException("Generic RSS article body loading is not implemented yet.")
     }
 
     override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+
+    private companion object {
+        const val TAG = "GenericRss"
+    }
 }

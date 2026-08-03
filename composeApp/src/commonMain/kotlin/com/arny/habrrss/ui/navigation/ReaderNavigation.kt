@@ -1,28 +1,30 @@
 package com.arny.habrrss.ui.navigation
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,7 +32,6 @@ import com.arny.habrrss.navigation.Screen
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
 
-// Mapping of screens to navigation items
 private val bottomNavItems = listOf(
     Triple(Screen.Feed, "Лента", Icons.AutoMirrored.Filled.Article),
     Triple(Screen.Sources, "Хабы", Icons.Filled.RssFeed),
@@ -104,43 +105,32 @@ internal fun Screen.toDestination(): ReaderDestination = when (this) {
 @Composable
 internal fun ReaderTopBar(
     state: ReaderUiState,
-    onRefresh: () -> Unit,
     onSearchChanged: (String) -> Unit,
 ) {
-    TopAppBar(
-        title = {
-            if (state.selectedDestination == ReaderDestination.Feed || state.selectedDestination == ReaderDestination.Bookmarks) {
+    val showSearch = state.selectedDestination == ReaderDestination.Feed ||
+        state.selectedDestination == ReaderDestination.Bookmarks
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            if (showSearch) {
                 OutlinedTextField(
                     value = state.searchQuery,
                     onValueChange = onSearchChanged,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    placeholder = { Text("Поиск по статьям") },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color.White,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
-                        focusedLeadingIconColor = Color.White,
-                        unfocusedLeadingIconColor = Color.White.copy(alpha = 0.75f),
-                        focusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
-                        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.75f),
-                    ),
-                )
-            } else {
-                Text(
-                    text = "TechReader",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.SemiBold,
+                    placeholder = { Text("Поиск...") },
+                    trailingIcon = {
+                        if (state.searchQuery.isNotBlank()) {
+                            IconButton(onClick = { onSearchChanged("") }) {
+                                Icon(Icons.Filled.Close, contentDescription = null)
+                            }
+                        }
+                    },
                 )
             }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color(0xFF26323B), // Habr dark
-            titleContentColor = Color.White,
-            actionIconContentColor = Color.White,
-        ),
-    )
+        }
+    }
 }
+

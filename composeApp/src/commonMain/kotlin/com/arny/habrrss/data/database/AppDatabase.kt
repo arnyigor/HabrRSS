@@ -10,8 +10,9 @@ import androidx.room.RoomDatabase
         FavoriteArticleEntity::class,
         FavoriteTagEntity::class,
         FavoriteHubEntity::class,
+        SyncStateEntity::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

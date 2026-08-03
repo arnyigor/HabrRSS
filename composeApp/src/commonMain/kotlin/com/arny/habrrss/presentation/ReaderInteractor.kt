@@ -41,6 +41,7 @@ class ReaderInteractor(
         updateState {
             it.copy(
                 settings = settings,
+                feedCardMode = settings.toFeedCardMode(),
                 favoriteHubIds = favoriteHubIds,
                 favoriteTagIds = favoriteTagIds,
             )
@@ -308,7 +309,7 @@ class ReaderInteractor(
     }
 
     fun setFeedCardMode(mode: FeedCardMode) {
-        updateState { it.copy(feedCardMode = mode) }
+        updateState { it.copy(feedCardMode = mode, settings = it.settings.copy(feedCardMode = mode.name)) }
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
@@ -323,6 +324,7 @@ class ReaderInteractor(
         if (next.lineHeightScale != current.lineHeightScale) preferencesRepository.setLineHeightScale(next.lineHeightScale)
         if (next.themeMode != current.themeMode) preferencesRepository.setThemeMode(next.themeMode)
         if (next.compactCards != current.compactCards) preferencesRepository.setCompactCards(next.compactCards)
+        if (next.feedCardMode != current.feedCardMode) preferencesRepository.setFeedCardMode(next.feedCardMode)
         if (next.openLinksInsideApp != current.openLinksInsideApp) {
             preferencesRepository.setOpenLinksInsideApp(next.openLinksInsideApp)
         }
@@ -441,3 +443,7 @@ class ReaderInteractor(
         FeedKind.News -> HabrPublicationSection.News
     }
 }
+
+private fun FeedSettings.toFeedCardMode(): FeedCardMode =
+    FeedCardMode.entries.firstOrNull { it.name == feedCardMode }
+        ?: if (compactCards) FeedCardMode.CompactText else FeedCardMode.Comfortable

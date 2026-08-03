@@ -1,11 +1,5 @@
 package com.arny.habrrss.ui.navigation
 
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,10 +20,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.AndroidUiModes.UI_MODE_NIGHT_YES
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
-import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.ui.NavDisplay
+import com.arny.habrrss.core.logging.AppLog
+import com.arny.habrrss.domain.models.FeedSettings
+import com.arny.habrrss.domain.models.ThemeMode
 import com.arny.habrrss.navigation.Screen
 import com.arny.habrrss.presentation.ArticleIntent
 import com.arny.habrrss.presentation.ArticleUiState
@@ -38,8 +34,10 @@ import com.arny.habrrss.presentation.FeedIntent
 import com.arny.habrrss.presentation.FeedViewModel
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
+import com.arny.habrrss.ui.ReaderTheme
 import com.arny.habrrss.ui.article.ArticleScreen
 import com.arny.habrrss.ui.components.ErrorBanner
+import com.arny.habrrss.ui.components.PlatformBackHandler
 import com.arny.habrrss.ui.components.WideLayoutMinWidth
 import com.arny.habrrss.ui.feed.FeedScreen
 import com.arny.habrrss.ui.search.SearchScreen
@@ -64,24 +62,29 @@ internal fun ReaderApp(
             .safeContentPadding(),
     ) {
         val isWide = maxWidth >= WideLayoutMinWidth
-        val displayRoute = if (isWide && currentRoute is Screen.Article) backStackManager.currentTab else currentRoute
+        val displayRoute =
+            if (isWide && currentRoute is Screen.Article) backStackManager.currentTab else currentRoute
         val isArticleRoute = !isWide && currentRoute is Screen.Article
         val closeArticle = {
+            AppLog.i(TAG, "closeArticle current=$currentRoute")
             viewModel.dispatch(FeedIntent.CloseArticle)
             articleViewModel.close()
         }
         val navigateToTopLevel: (Screen) -> Unit = { screen ->
+            AppLog.i(TAG, "navigateToTopLevel screen=$screen current=$currentRoute")
             backStackManager.selectTopLevel(screen)
             viewModel.dispatch(FeedIntent.SelectDestination(screen.toDestination()))
             closeArticle()
         }
         val popBackStack: () -> Unit = {
+            AppLog.i(TAG, "popBackStack current=${backStackManager.currentRoute}")
             val removed = backStackManager.popBackStack()
             if (removed is Screen.Article) {
                 closeArticle()
             }
         }
         val openArticle: (String) -> Unit = { articleId ->
+            AppLog.i(TAG, "openArticle articleId=$articleId isWide=$isWide current=$currentRoute")
             viewModel.dispatch(FeedIntent.SelectArticle(articleId))
             articleViewModel.openArticle(articleId)
             if (!isWide) {
@@ -103,7 +106,6 @@ internal fun ReaderApp(
         ReaderAppContent(
             state = state,
             articleState = articleState,
-            currentRoute = displayRoute,
             selectedTopLevel = backStackManager.currentTab,
             isArticleRoute = isArticleRoute,
             onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
@@ -127,6 +129,8 @@ internal fun ReaderApp(
             onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
             onArticleBookmarkToggled = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
             onRelatedArticleSelected = openArticle,
+            onBack = popBackStack,
+            onErrorDismiss = { viewModel.dispatch(FeedIntent.DismissError) },
             navHost = { modifier, wide ->
                 AppNavHost(
                     backStack = if (wide) listOf(displayRoute) else backStackManager.currentBackStack,
@@ -144,12 +148,13 @@ internal fun ReaderApp(
     }
 }
 
+private const val TAG = "Navigation"
+
 /** Stateless UI shell: all state and actions are hoisted for previews and tests. */
 @Composable
 internal fun ReaderAppContent(
     state: ReaderUiState,
     articleState: ArticleUiState,
-    currentRoute: Screen?,
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
@@ -164,6 +169,8 @@ internal fun ReaderAppContent(
     onFavoriteTagToggled: (String) -> Unit,
     onArticleBookmarkToggled: () -> Unit,
     onRelatedArticleSelected: (String) -> Unit,
+    onBack: () -> Unit,
+    onErrorDismiss: () -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -172,7 +179,6 @@ internal fun ReaderAppContent(
             ReaderWideLayout(
                 state = state,
                 articleState = articleState,
-                currentRoute = currentRoute,
                 selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
                 onRefresh = onRefresh,
@@ -187,18 +193,20 @@ internal fun ReaderAppContent(
                 onFavoriteTagToggled = onFavoriteTagToggled,
                 onArticleBookmarkToggled = onArticleBookmarkToggled,
                 onRelatedArticleSelected = onRelatedArticleSelected,
+                onErrorDismiss = onErrorDismiss,
                 navHost = navHost,
             )
         } else {
             ReaderMobileLayout(
                 state = state,
-                currentRoute = currentRoute,
                 selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
                 onRefresh = onRefresh,
                 onSearchChanged = onSearchChanged,
                 onDestinationSelected = onDestinationSelected,
                 onTopLevelSelected = onTopLevelSelected,
+                onBack = onBack,
+                onErrorDismiss = onErrorDismiss,
                 navHost = navHost,
             )
         }
@@ -209,7 +217,6 @@ internal fun ReaderAppContent(
 private fun ReaderWideLayout(
     state: ReaderUiState,
     articleState: ArticleUiState,
-    currentRoute: Screen?,
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
@@ -224,6 +231,7 @@ private fun ReaderWideLayout(
     onFavoriteTagToggled: (String) -> Unit,
     onArticleBookmarkToggled: () -> Unit,
     onRelatedArticleSelected: (String) -> Unit,
+    onErrorDismiss: () -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
     Row(Modifier.fillMaxSize()) {
@@ -234,9 +242,16 @@ private fun ReaderWideLayout(
         )
         Column(modifier = Modifier.weight(1f)) {
             if (!isArticleRoute) {
-                ReaderTopBar(state = state, onRefresh = onRefresh, onSearchChanged = onSearchChanged)
+                ReaderTopBar(
+                    state = state,
+                    onSearchChanged = onSearchChanged
+                )
             }
-            state.errorMessage?.let { ErrorBanner(it, onRetry = onRefresh) }
+            ReaderErrorBanner(
+                message = state.errorMessage,
+                onRefresh = onRefresh,
+                onDismiss = onErrorDismiss,
+            )
             navHost(Modifier.weight(1f), true)
         }
         val article = articleState.article
@@ -251,6 +266,7 @@ private fun ReaderWideLayout(
                     settings = state.settings,
                     favoriteTagIds = state.favoriteTagIds,
                     favoriteHubIds = state.favoriteHubIds,
+                    addedHubSlugs = state.addedHubSlugs,
                     onBack = onCloseArticle,
                     onHubSelected = { hubId -> onHubSelected(hubId) },
                     onHubFeedRequested = onHubFeedRequested,
@@ -264,12 +280,14 @@ private fun ReaderWideLayout(
                     isLoadingExtras = articleState.isLoadingExtras,
                     onRelatedArticleSelected = onRelatedArticleSelected,
                 )
+
                 articleError != null -> Box(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(articleError)
                 }
+
                 else -> Box(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     contentAlignment = Alignment.Center,
@@ -284,15 +302,17 @@ private fun ReaderWideLayout(
 @Composable
 private fun ReaderMobileLayout(
     state: ReaderUiState,
-    currentRoute: Screen?,
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
     onRefresh: () -> Unit,
     onSearchChanged: (String) -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
     onTopLevelSelected: (Screen) -> Unit,
+    onBack: () -> Unit,
+    onErrorDismiss: () -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
+    PlatformBackHandler(enabled = isArticleRoute, onBack = onBack)
     Scaffold(
         bottomBar = {
             if (!isArticleRoute) {
@@ -310,11 +330,33 @@ private fun ReaderMobileLayout(
                 .fillMaxSize(),
         ) {
             if (!isArticleRoute) {
-                ReaderTopBar(state = state, onRefresh = onRefresh, onSearchChanged = onSearchChanged)
+                ReaderTopBar(
+                    state = state,
+                    onSearchChanged = onSearchChanged
+                )
             }
-            state.errorMessage?.let { ErrorBanner(it, onRetry = onRefresh) }
+            ReaderErrorBanner(
+                message = state.errorMessage,
+                onRefresh = onRefresh,
+                onDismiss = onErrorDismiss,
+            )
             navHost(Modifier.weight(1f), false)
         }
+    }
+}
+
+@Composable
+private fun ReaderErrorBanner(
+    message: String?,
+    onRefresh: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (message != null) {
+        ErrorBanner(
+            message = message,
+            onRetry = onRefresh,
+            onDismiss = onDismiss,
+        )
     }
 }
 
@@ -330,67 +372,24 @@ internal fun AppNavHost(
     navigateToFeed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    NavDisplay(
-        backStack = backStack,
-        modifier = modifier.fillMaxSize(),
-        onBack = onBack,
-        transitionSpec = {
-            (slideInHorizontally(
-                initialOffsetX = { width -> width },
-                animationSpec = tween(300),
-            ) + fadeIn(animationSpec = tween(180)))
-                .togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> -width },
-                        animationSpec = tween(300),
-                    ) + fadeOut(animationSpec = tween(180)),
-                )
-        },
-        popTransitionSpec = {
-            (slideInHorizontally(
-                initialOffsetX = { width -> -width },
-                animationSpec = tween(300),
-            ) + fadeIn(animationSpec = tween(180)))
-                .togetherWith(
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> width },
-                        animationSpec = tween(300),
-                    ) + fadeOut(animationSpec = tween(180)),
-                )
-        },
-        entryProvider = entryProvider<NavKey> {
-            entry<Screen.Feed> {
-                FeedRoute(state, viewModel, openArticle, isWide)
-            }
-
-            entry<Screen.Bookmarks> {
-                BookmarksRoute(state, viewModel, openArticle, isWide)
-            }
-
-            entry<Screen.Search> {
-                SearchRoute(state, viewModel, openArticle)
-            }
-
-            entry<Screen.Sources> {
-                SourcesRoute(state, viewModel, navigateToFeed)
-            }
-
-            entry<Screen.Settings> {
-                SettingsRoute(state, viewModel)
-            }
-
-            entry<Screen.Article> { route ->
-                ArticleRoute(
-                    route = route,
-                    state = state,
-                    viewModel = viewModel,
-                    articleViewModel = articleViewModel,
-                    onBack = onBack,
-                    navigateToFeed = navigateToFeed,
-                )
-            }
-        },
-    )
+    val route = backStack.lastOrNull() as? Screen ?: Screen.Feed
+    Box(modifier.fillMaxSize()) {
+        when (route) {
+            Screen.Feed -> FeedRoute(state, viewModel, openArticle, isWide)
+            Screen.Bookmarks -> BookmarksRoute(state, viewModel, openArticle, isWide)
+            Screen.Search -> SearchRoute(state, viewModel, openArticle)
+            Screen.Sources -> SourcesRoute(state, viewModel, navigateToFeed)
+            Screen.Settings -> SettingsRoute(state, viewModel)
+            is Screen.Article -> ArticleRoute(
+                route = route,
+                state = state,
+                viewModel = viewModel,
+                articleViewModel = articleViewModel,
+                onBack = onBack,
+                navigateToFeed = navigateToFeed,
+            )
+        }
+    }
 }
 
 @Composable
@@ -462,15 +461,21 @@ private fun SourcesRoute(
     SourceScreen(
         feeds = state.feeds,
         activeFeedId = state.activeFeedId,
-        favoriteHubs = state.favoriteHubs,
         favoriteTags = state.favoriteTags,
         onFeedSelected = { feedId ->
             navigateToFeed()
             viewModel.dispatch(FeedIntent.SelectFeed(feedId))
         },
-        onCustomFeedSaved = { id, title, url -> viewModel.dispatch(FeedIntent.SaveCustomFeed(id, title, url)) },
+        onCustomFeedSaved = { id, title, url ->
+            viewModel.dispatch(
+                FeedIntent.SaveCustomFeed(
+                    id,
+                    title,
+                    url
+                )
+            )
+        },
         onCustomFeedRemoved = { viewModel.dispatch(FeedIntent.RemoveCustomFeed(it)) },
-        onFavoriteHubRemoved = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
         onFavoriteTagRemoved = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
     )
 }
@@ -483,11 +488,34 @@ private fun SettingsRoute(
     SettingsScreen(
         state = state,
         onCardModeChanged = { viewModel.dispatch(FeedIntent.SetFeedCardMode(it)) },
-        onFontScaleChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(fontScale = value) }) },
-        onLineHeightChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(lineHeightScale = value) }) },
-        onThemeModeChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(themeMode = value) }) },
-        onOpenLinksInsideChanged = { value -> viewModel.dispatch(FeedIntent.UpdateSettings { it.copy(openLinksInsideApp = value) }) },
-        onFavoriteHubToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteHub(it)) },
+        onFontScaleChanged = { value ->
+            viewModel.dispatch(FeedIntent.UpdateSettings {
+                it.copy(
+                    fontScale = value
+                )
+            })
+        },
+        onLineHeightChanged = { value ->
+            viewModel.dispatch(FeedIntent.UpdateSettings {
+                it.copy(
+                    lineHeightScale = value
+                )
+            })
+        },
+        onThemeModeChanged = { value ->
+            viewModel.dispatch(FeedIntent.UpdateSettings {
+                it.copy(
+                    themeMode = value
+                )
+            })
+        },
+        onOpenLinksInsideChanged = { value ->
+            viewModel.dispatch(FeedIntent.UpdateSettings {
+                it.copy(
+                    openLinksInsideApp = value
+                )
+            })
+        },
         onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
     )
 }
@@ -525,6 +553,7 @@ private fun ArticleRoute(
             settings = state.settings,
             favoriteTagIds = state.favoriteTagIds,
             favoriteHubIds = state.favoriteHubIds,
+            addedHubSlugs = state.addedHubSlugs,
             onBack = onBack,
             onHubSelected = { hubId ->
                 viewModel.dispatch(FeedIntent.SelectHub(hubId))
@@ -560,7 +589,6 @@ private fun ReaderAppContentPreview() {
         ReaderAppContent(
             state = ReaderUiState(),
             articleState = ArticleUiState(),
-            currentRoute = Screen.Feed,
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
             onRefresh = {},
@@ -575,6 +603,8 @@ private fun ReaderAppContentPreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onBack = {},
+            onErrorDismiss = {},
             navHost = { modifier, _ ->
                 Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Лента статей")
@@ -583,4 +613,169 @@ private fun ReaderAppContentPreview() {
         )
     }
 }
+
+// Предполагается, что ReaderTheme определен в этом файле или импортирован
+// @Composable private fun ReaderTheme(...) { ... }
+
+@Preview(name = "Wide Layout", showBackground = true, device = "spec:width=1280dp,height=800dp")
+@Composable
+private fun ReaderAppContentWidePreview() {
+    ReaderTheme(settings = FeedSettings.defaults()) {
+        ReaderAppContent(
+            state = ReaderUiState(isArticleOpen = true, selectedArticleId = "1"),
+            articleState = ArticleUiState(),
+            selectedTopLevel = Screen.Feed,
+            isArticleRoute = false,
+            onRefresh = {},
+            onSearchChanged = {},
+            onDestinationSelected = {},
+            onTopLevelSelected = {},
+            onCloseArticle = {},
+            onHubSelected = {},
+            onHubFeedRequested = { _, _ -> },
+            onTagSelected = {},
+            onFavoriteHubToggled = {},
+            onFavoriteTagToggled = {},
+            onArticleBookmarkToggled = {},
+            onRelatedArticleSelected = {},
+            onBack = {},
+            onErrorDismiss = {},
+            navHost = { modifier, wide ->
+                Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(if (wide) "Широкий макет: Лента" else "Лента")
+                }
+            },
+        )
+    }
+}
+
+@Preview(name = "Mobile Article Open", showBackground = true, device = "spec:width=360dp,height=800dp")
+@Composable
+private fun ReaderAppContentArticlePreview() {
+    ReaderTheme(settings = FeedSettings.defaults()) {
+        ReaderAppContent(
+            state = ReaderUiState(isArticleOpen = true, selectedArticleId = "1"),
+            articleState = ArticleUiState(),
+            selectedTopLevel = Screen.Feed,
+            isArticleRoute = true,
+            onRefresh = {},
+            onSearchChanged = {},
+            onDestinationSelected = {},
+            onTopLevelSelected = {},
+            onCloseArticle = {},
+            onHubSelected = {},
+            onHubFeedRequested = { _, _ -> },
+            onTagSelected = {},
+            onFavoriteHubToggled = {},
+            onFavoriteTagToggled = {},
+            onArticleBookmarkToggled = {},
+            onRelatedArticleSelected = {},
+            onBack = {},
+            onErrorDismiss = {},
+            navHost = { modifier, _ ->
+                Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Статья открыта")
+                }
+            },
+        )
+    }
+}
+
+@Preview(name = "Error State", showBackground = true, device = "spec:width=360dp,height=800dp")
+@Composable
+private fun ReaderAppContentErrorPreview() {
+    ReaderTheme(settings = FeedSettings.defaults()) {
+        ReaderAppContent(
+            state = ReaderUiState(errorMessage = "Не удалось загрузить ленту"),
+            articleState = ArticleUiState(),
+            selectedTopLevel = Screen.Feed,
+            isArticleRoute = false,
+            onRefresh = {},
+            onSearchChanged = {},
+            onDestinationSelected = {},
+            onTopLevelSelected = {},
+            onCloseArticle = {},
+            onHubSelected = {},
+            onHubFeedRequested = { _, _ -> },
+            onTagSelected = {},
+            onFavoriteHubToggled = {},
+            onFavoriteTagToggled = {},
+            onArticleBookmarkToggled = {},
+            onRelatedArticleSelected = {},
+            onBack = {},
+            onErrorDismiss = {},
+            navHost = { modifier, _ ->
+                Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            },
+        )
+    }
+}
+
+@Preview(name = "Dark Theme", showBackground = true, uiMode = UI_MODE_NIGHT_YES)
+@Composable
+private fun ReaderAppContentDarkPreview() {
+    // Явно указываем Dark, чтобы ReaderTheme применил темную схему
+    ReaderTheme(settings = FeedSettings.defaults().copy(themeMode = ThemeMode.Dark)) {
+        ReaderAppContent(
+            state = ReaderUiState(),
+            articleState = ArticleUiState(),
+            selectedTopLevel = Screen.Feed,
+            isArticleRoute = false,
+            onRefresh = {},
+            onSearchChanged = {},
+            onDestinationSelected = {},
+            onTopLevelSelected = {},
+            onCloseArticle = {},
+            onHubSelected = {},
+            onHubFeedRequested = { _, _ -> },
+            onTagSelected = {},
+            onFavoriteHubToggled = {},
+            onFavoriteTagToggled = {},
+            onArticleBookmarkToggled = {},
+            onRelatedArticleSelected = {},
+            onBack = {},
+            onErrorDismiss = {},
+            navHost = { modifier, _ ->
+                Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Тёмная тема")
+                }
+            },
+        )
+    }
+}
+
+@Preview(name = "Large Font", showBackground = true, fontScale = 1.5f)
+@Composable
+private fun ReaderAppContentLargeFontPreview() {
+    ReaderTheme(settings = FeedSettings.defaults()) {
+        ReaderAppContent(
+            state = ReaderUiState(),
+            articleState = ArticleUiState(),
+            selectedTopLevel = Screen.Feed,
+            isArticleRoute = false,
+            onRefresh = {},
+            onSearchChanged = {},
+            onDestinationSelected = {},
+            onTopLevelSelected = {},
+            onCloseArticle = {},
+            onHubSelected = {},
+            onHubFeedRequested = { _, _ -> },
+            onTagSelected = {},
+            onFavoriteHubToggled = {},
+            onFavoriteTagToggled = {},
+            onArticleBookmarkToggled = {},
+            onRelatedArticleSelected = {},
+            onBack = {},
+            onErrorDismiss = {},
+            navHost = { modifier, _ ->
+                Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Увеличенный шрифт")
+                }
+            },
+        )
+    }
+}
+
 

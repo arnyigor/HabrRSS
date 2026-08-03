@@ -42,6 +42,11 @@ interface UserPreferencesRepository {
     suspend fun setCompactCards(enabled: Boolean)
 
     /**
+     * Update feed card display mode.
+     */
+    suspend fun setFeedCardMode(mode: String)
+
+    /**
      * Update open links inside app setting
      */
     suspend fun setOpenLinksInsideApp(enabled: Boolean)

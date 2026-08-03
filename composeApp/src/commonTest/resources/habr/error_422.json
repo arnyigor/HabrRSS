@@ -1,0 +1,8 @@
+{
+  "httpCode": 422,
+  "message": "Form errors",
+  "errorCode": "validation_error",
+  "data": {
+    "period": "required"
+  }
+}

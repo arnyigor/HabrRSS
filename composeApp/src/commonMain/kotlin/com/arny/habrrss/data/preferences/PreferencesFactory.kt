@@ -44,6 +44,10 @@ class DefaultPreferencesRepository : UserPreferencesRepository {
         _preferences.value = _preferences.value.copy(compactCards = enabled)
     }
 
+    override suspend fun setFeedCardMode(mode: String) {
+        _preferences.value = _preferences.value.copy(feedCardMode = mode)
+    }
+
     override suspend fun setOpenLinksInsideApp(enabled: Boolean) {
         _preferences.value = _preferences.value.copy(openLinksInsideApp = enabled)
     }

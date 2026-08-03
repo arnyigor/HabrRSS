@@ -54,6 +54,7 @@ class FilePreferencesRepository(
                 lineHeightScale = settings.lineHeightScale,
                 compactCards = settings.compactCards,
                 openLinksInsideApp = settings.openLinksInsideApp,
+                feedCardMode = settings.feedCardMode,
             )
         )
     }
@@ -80,6 +81,10 @@ class FilePreferencesRepository(
 
     override suspend fun setCompactCards(enabled: Boolean) {
         savePreferences(_preferences.value.copy(compactCards = enabled))
+    }
+
+    override suspend fun setFeedCardMode(mode: String) {
+        savePreferences(_preferences.value.copy(feedCardMode = mode))
     }
 
     override suspend fun setOpenLinksInsideApp(enabled: Boolean) {
@@ -114,6 +119,7 @@ class FilePreferencesRepository(
         val lineHeightScale: Float = 1.25f,
         val compactCards: Boolean = false,
         val openLinksInsideApp: Boolean = false,
+        val feedCardMode: String? = null,
         val favoriteHubIds: Set<String> = emptySet(),
         val favoriteTagIds: Set<String> = emptySet(),
         val customFeeds: List<CustomFeedPreference> = emptyList(),
@@ -127,6 +133,7 @@ class FilePreferencesRepository(
             cacheSizeMb = FeedSettings.defaults().cacheSizeMb,
             autoRefreshMinutes = FeedSettings.defaults().autoRefreshMinutes,
             openLinksInsideApp = openLinksInsideApp,
+            feedCardMode = feedCardMode ?: if (compactCards) "CompactText" else "Comfortable",
         )
     }
 }

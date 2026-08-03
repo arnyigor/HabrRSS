@@ -31,7 +31,6 @@ internal fun SettingsScreen(
     onLineHeightChanged: (Float) -> Unit,
     onThemeModeChanged: (ThemeMode) -> Unit,
     onOpenLinksInsideChanged: (Boolean) -> Unit,
-    onFavoriteHubToggled: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
 ) {
     Column(
@@ -91,15 +90,15 @@ internal fun SettingsScreen(
                 )
             }
         }
-        SettingsSectionTitle("Избранные хабы и теги")
+        SettingsSectionTitle("Избранные теги")
         Text(
-            "Избранное видно здесь и в верхней панели ленты отдельными чипами ★. Нажмите на чип, чтобы отфильтровать ленту по тегу или хабу.",
+            "Избранные теги видны здесь и в верхней панели ленты отдельными чипами ★. Хабы управляются отдельно в разделе добавленных хабов.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (state.favoriteHubs.isEmpty() && state.favoriteTags.isEmpty()) {
+        if (state.favoriteTags.isEmpty()) {
             Text(
-                "Нажмите звёздочку у хаба или тега внутри статьи, чтобы закрепить его в ленте.",
+                "Нажмите звёздочку у тега внутри статьи, чтобы закрепить его в ленте.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -109,13 +108,6 @@ internal fun SettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                state.favoriteHubs.forEach { (hubId, title) ->
-                    FilterChip(
-                        selected = true,
-                        onClick = { onFavoriteHubToggled(hubId) },
-                        label = { Text("★ $title") },
-                    )
-                }
                 state.favoriteTags.forEach { (tagId, title) ->
                     FilterChip(
                         selected = true,

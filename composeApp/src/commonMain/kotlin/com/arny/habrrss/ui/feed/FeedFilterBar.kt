@@ -28,8 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.AndroidUiModes.UI_MODE_NIGHT_YES
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.presentation.FeedFilterChipState
+import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
 
 @Composable
@@ -56,23 +60,35 @@ internal fun FeedFilterBar(
         shadowElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 8.dp),
+            modifier = Modifier.padding(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            val title = when (state.selectedDestination) {
+                ReaderDestination.Feed -> state.selectedFeedTitle
+                ReaderDestination.Bookmarks -> state.selectedDestination.label
+                ReaderDestination.Search -> state.selectedDestination.label
+                ReaderDestination.Sources -> state.selectedDestination.label
+                ReaderDestination.Settings -> state.selectedDestination.label
+            }
             CollapsibleSectionHeader(
-                title = "Фильтры",
+                title = title,
                 summary = buildFilterSummary(state, hubs.size, tags.size),
                 expanded = filtersExpanded,
                 onClick = { filtersExpanded = !filtersExpanded },
             )
             if (filtersExpanded) {
                 val hubSelected = hubs.any { it.selected }
-                SectionLabel(if (hubSelected) "Хабы · выбранный хаб выделен" else "Хабы")
+                SectionLabel(if (hubSelected) "Хаб · $title" else "Хабы")
                 ChipRow {
                     FeedFilterChip(
-                        title = "Все хабы",
-                        selected = !hubSelected,
-                        onClick = { onHubSelected(null) },
+                        title = "Новые",
+                        selected = state.activeFeedId == HabrApiSource.FeedIds.All && !hubSelected,
+                        onClick = { onFeedSelected(HabrApiSource.FeedIds.All) },
+                    )
+                    FeedFilterChip(
+                        title = "Все загруженные",
+                        selected = state.activeFeedId == HabrApiSource.FeedIds.AllCached && !hubSelected,
+                        onClick = { onFeedSelected(HabrApiSource.FeedIds.AllCached) },
                     )
                     hubs.forEach { hub ->
                         FeedFilterChip(
@@ -86,7 +102,7 @@ internal fun FeedFilterBar(
                     }
                 }
                 if (tags.isNotEmpty()) {
-                    SectionLabel(if (state.selectedTagId != null) "Теги · выбранный тег выделен" else "Теги")
+                    SectionLabel(if (state.selectedTagId != null) "Тег · ${state.selectedTagTitle}" else "Теги")
                     ChipRow {
                         FeedFilterChip(
                             title = "Все теги",
@@ -153,7 +169,7 @@ private fun CollapsibleSectionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(horizontal = 20.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -227,4 +243,174 @@ private fun FeedFilterChip(
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+
+private fun previewChip(
+    id: String,
+    title: String,
+    count: Int = 0,
+    favorite: Boolean = false,
+    selected: Boolean = false,
+    feedId: String? = null,
+): FeedFilterChipState = FeedFilterChipState(
+    id = id,
+    title = title,
+    count = count,
+    favorite = favorite,
+    selected = selected,
+    feedId = feedId,
+)
+
+private val previewHubs = listOf(
+    previewChip(id = "devops", title = "DevOps", count = 12, favorite = true),
+    previewChip(id = "backend", title = "Бэкенд", count = 8),
+    previewChip(id = "mobile", title = "Мобильная разработка", count = 5),
+    previewChip(id = "infosec", title = "Информационная безопасность", count = 3),
+    previewChip(id = "popular", title = "Популярное", count = 21, feedId = "habr-popular"),
+)
+
+private val previewTags = listOf(
+    previewChip(id = "kotlin", title = "kotlin", count = 6, favorite = true),
+    previewChip(id = "android", title = "android", count = 4),
+    previewChip(id = "compose", title = "jetpack-compose", count = 3),
+    previewChip(id = "rss", title = "rss", count = 1),
+)
+
+private fun previewState(
+    hubFilters: List<FeedFilterChipState> = emptyList(),
+    tagFilters: List<FeedFilterChipState> = emptyList(),
+    selectedHubId: String? = null,
+    selectedTagId: String? = null,
+    searchQuery: String = "",
+    showUnreadOnly: Boolean = false,
+): ReaderUiState = ReaderUiState(
+    hubFilters = hubFilters,
+    tagFilters = tagFilters,
+    selectedHubId = selectedHubId,
+    selectedTagId = selectedTagId,
+    searchQuery = searchQuery,
+    showUnreadOnly = showUnreadOnly,
+)
+
+@Preview(
+    name = "Свёрнута · фильтры не активны",
+    group = "FeedFilterBar",
+    showBackground = true,
+)
+@Composable
+private fun FeedFilterBarCollapsedPreview() {
+    FeedFilterBar(
+        state = previewState(hubFilters = previewHubs),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+@Preview(
+    name = "Выбраны хаб и тег",
+    group = "FeedFilterBar",
+    showBackground = true,
+    widthDp = 420,
+)
+@Composable
+private fun FeedFilterBarSelectedPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs.map { it.copy(selected = it.id == "devops") },
+            tagFilters = previewTags.map { it.copy(selected = it.id == "kotlin") },
+            selectedHubId = "devops",
+            selectedTagId = "kotlin",
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+@Preview(
+    name = "Все фильтры активны",
+    group = "FeedFilterBar",
+    showBackground = true,
+    widthDp = 420,
+)
+@Composable
+private fun FeedFilterBarAllFiltersPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs.map { it.copy(selected = it.id == "backend") },
+            tagFilters = previewTags.map { it.copy(selected = it.id == "android") },
+            selectedHubId = "backend",
+            selectedTagId = "android",
+            searchQuery = "compose",
+            showUnreadOnly = true,
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+@Preview(
+    name = "Без тегов · подсказка",
+    group = "FeedFilterBar",
+    showBackground = true,
+)
+@Composable
+private fun FeedFilterBarNoTagsPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs.map { it.copy(selected = it.id == "infosec") },
+            selectedHubId = "infosec",
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+@Preview(
+    name = "Тёмная тема",
+    group = "FeedFilterBar",
+    showBackground = true,
+    uiMode = UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun FeedFilterBarDarkPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs.map { it.copy(selected = it.id == "devops") },
+            tagFilters = previewTags,
+            selectedHubId = "devops",
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+@Preview(
+    name = "Крупный шрифт",
+    group = "FeedFilterBar",
+    showBackground = true,
+    fontScale = 1.3f,
+)
+@Composable
+private fun FeedFilterBarLargeFontPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs,
+            tagFilters = previewTags,
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
 }

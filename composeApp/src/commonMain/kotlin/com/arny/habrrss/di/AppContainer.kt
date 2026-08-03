@@ -59,11 +59,11 @@ open class AppContainer(
     // Repository instance
     val repository: TechReaderRepository by lazy {
         TechReaderRepository(
-            primarySource = HabrRssSource(httpClient),
+            primarySource = HabrApiSource(httpClient),
             feedDao = feedDao,
             articleContentSource = articleContentSource,
             secondarySources = listOf(
-                HabrApiSource(),
+                HabrRssSource(httpClient),
             ),
             customRssSource = customRssSource,
             preferencesRepository = preferencesRepository,
