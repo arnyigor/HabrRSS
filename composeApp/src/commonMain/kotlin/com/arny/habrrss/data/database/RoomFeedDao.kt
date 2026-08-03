@@ -92,4 +92,13 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun deleteFavoriteHub(hubId: String) =
         feedDao.deleteFavoriteHub(hubId)
 
+    override suspend fun getSyncState(sourceKey: String): SyncStateEntity? =
+        feedDao.getSyncState(sourceKey)
+
+    override fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?> =
+        feedDao.observeSyncState(sourceKey)
+
+    override suspend fun upsertSyncState(state: SyncStateEntity) =
+        feedDao.upsertSyncState(state)
+
 }

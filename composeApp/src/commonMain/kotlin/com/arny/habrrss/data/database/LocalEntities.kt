@@ -46,3 +46,22 @@ data class FavoriteHubEntity(
     val title: String? = null,
     val createdAt: Long = 0L,
 )
+
+/** Progress and resume state for long-running remote imports. */
+@Serializable
+@Entity(tableName = "sync_state")
+data class SyncStateEntity(
+    @PrimaryKey val sourceKey: String,
+    val mode: String,
+    val status: String,
+    val nextPage: Int,
+    val pagesCountSnapshot: Int?,
+    val pagesProcessed: Int,
+    val receivedCount: Long,
+    val uniqueCount: Long,
+    val failedPage: Int?,
+    val errorCode: String?,
+    val startedAtEpochMillis: Long,
+    val updatedAtEpochMillis: Long,
+    val completedAtEpochMillis: Long?,
+)

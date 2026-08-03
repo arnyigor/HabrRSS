@@ -110,3 +110,28 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         connection.execSQL("CREATE INDEX IF NOT EXISTS index_feed_items_feedId ON feed_items(feedId)")
     }
 }
+
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS sync_state (
+                sourceKey TEXT NOT NULL PRIMARY KEY,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                nextPage INTEGER NOT NULL,
+                pagesCountSnapshot INTEGER,
+                pagesProcessed INTEGER NOT NULL,
+                receivedCount INTEGER NOT NULL,
+                uniqueCount INTEGER NOT NULL,
+                failedPage INTEGER,
+                errorCode TEXT,
+                startedAtEpochMillis INTEGER NOT NULL,
+                updatedAtEpochMillis INTEGER NOT NULL,
+                completedAtEpochMillis INTEGER
+            )
+            """.trimIndent()
+        )
+    }
+}

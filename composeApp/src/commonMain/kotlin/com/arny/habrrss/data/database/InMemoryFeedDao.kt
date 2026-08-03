@@ -14,6 +14,7 @@ class InMemoryFeedDao : FeedDao {
     private val favoriteArticles = mutableMapOf<String, FavoriteArticleEntity>()
     private val favoriteTags = mutableMapOf<String, FavoriteTagEntity>()
     private val favoriteHubs = mutableMapOf<String, FavoriteHubEntity>()
+    private val syncStates = mutableMapOf<String, SyncStateEntity>()
     private val version = MutableStateFlow(0)
 
     override fun getByFeed(feedId: String): Flow<List<FeedItemEntity>> =
@@ -131,6 +132,17 @@ class InMemoryFeedDao : FeedDao {
 
     override suspend fun deleteFavoriteHub(hubId: String) {
         favoriteHubs.remove(hubId)
+        notifyChanged()
+    }
+
+    override suspend fun getSyncState(sourceKey: String): SyncStateEntity? =
+        syncStates[sourceKey]
+
+    override fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?> =
+        version.map { syncStates[sourceKey] }
+
+    override suspend fun upsertSyncState(state: SyncStateEntity) {
+        syncStates[state.sourceKey] = state
         notifyChanged()
     }
 

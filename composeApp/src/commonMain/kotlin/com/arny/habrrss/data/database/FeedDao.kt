@@ -98,4 +98,15 @@ interface FeedDao {
     @Query("DELETE FROM favorite_hubs WHERE hubId = :hubId")
     suspend fun deleteFavoriteHub(hubId: String)
 
+    // ---------- Remote sync state ----------
+
+    @Query("SELECT * FROM sync_state WHERE sourceKey = :sourceKey")
+    suspend fun getSyncState(sourceKey: String): SyncStateEntity?
+
+    @Query("SELECT * FROM sync_state WHERE sourceKey = :sourceKey")
+    fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSyncState(state: SyncStateEntity)
+
 }

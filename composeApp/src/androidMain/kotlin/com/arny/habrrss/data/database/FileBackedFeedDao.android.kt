@@ -19,6 +19,7 @@ class FileBackedFeedDao(
     private val favoriteArticles = store.favoriteArticles.associateBy { it.articleId }.toMutableMap()
     private val favoriteTags = store.favoriteTags.associateBy { it.tagId }.toMutableMap()
     private val favoriteHubs = store.favoriteHubs.associateBy { it.hubId }.toMutableMap()
+    private val syncStates = store.syncStates.associateBy { it.sourceKey }.toMutableMap()
     private val version = MutableStateFlow(0)
 
     override fun getByFeed(feedId: String): Flow<List<FeedItemEntity>> =
@@ -145,6 +146,17 @@ class FileBackedFeedDao(
         persist()
     }
 
+    override suspend fun getSyncState(sourceKey: String): SyncStateEntity? =
+        syncStates[sourceKey]
+
+    override fun observeSyncState(sourceKey: String): Flow<SyncStateEntity?> =
+        version.map { syncStates[sourceKey] }
+
+    override suspend fun upsertSyncState(state: SyncStateEntity) {
+        syncStates[state.sourceKey] = state
+        persist()
+    }
+
     private fun loadStore(): FeedStore {
         if (!file.exists()) return FeedStore()
         val text = file.readText()
@@ -163,6 +175,7 @@ class FileBackedFeedDao(
                 favoriteArticles = favoriteArticles.values.toList(),
                 favoriteTags = favoriteTags.values.toList(),
                 favoriteHubs = favoriteHubs.values.toList(),
+                syncStates = syncStates.values.toList(),
             )
         }
         file.writeText(json.encodeToString(snapshot))
@@ -183,4 +196,5 @@ private data class FeedStore(
     val favoriteArticles: List<FavoriteArticleEntity> = emptyList(),
     val favoriteTags: List<FavoriteTagEntity> = emptyList(),
     val favoriteHubs: List<FavoriteHubEntity> = emptyList(),
+    val syncStates: List<SyncStateEntity> = emptyList(),
 )
