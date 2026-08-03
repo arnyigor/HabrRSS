@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
     tableName = "feed_items",
     indices = [
         Index(value = ["feedId"]),
+        Index(value = ["feedId", "publishedAtEpoch", "fetchedAt"]),
+        Index(value = ["publishedAtEpoch"]),
     ]
 )
 data class FeedItemEntity(

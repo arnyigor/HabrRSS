@@ -135,3 +135,15 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         )
     }
 }
+
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_feed_items_feedId_publishedAtEpoch_fetchedAt ON feed_items(feedId, publishedAtEpoch, fetchedAt)"
+        )
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_feed_items_publishedAtEpoch ON feed_items(publishedAtEpoch)"
+        )
+    }
+}
