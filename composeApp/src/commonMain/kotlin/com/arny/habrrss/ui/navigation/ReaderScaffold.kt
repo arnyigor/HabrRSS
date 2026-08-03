@@ -358,6 +358,18 @@ internal fun AppNavHost(
                     ) + fadeOut(animationSpec = tween(180)),
                 )
         },
+        predictivePopTransitionSpec = {
+            (slideInHorizontally(
+                initialOffsetX = { width -> -width },
+                animationSpec = tween(300),
+            ) + fadeIn(animationSpec = tween(180)))
+                .togetherWith(
+                    slideOutHorizontally(
+                        targetOffsetX = { width -> width },
+                        animationSpec = tween(300),
+                    ) + fadeOut(animationSpec = tween(180)),
+                )
+        },
         entryProvider = entryProvider<NavKey> {
             entry<Screen.Feed> {
                 FeedRoute(state, viewModel, openArticle, isWide)
