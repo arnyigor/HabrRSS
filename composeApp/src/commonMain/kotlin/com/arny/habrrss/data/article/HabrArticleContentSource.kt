@@ -1,5 +1,7 @@
 package com.arny.habrrss.data.article
 
+import com.arny.habrrss.data.remote.habr.HabrApiClient
+import com.arny.habrrss.data.remote.habr.mapper.HabrArticleMapper
 import com.arny.habrrss.data.rss.HtmlArticleParser
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
@@ -12,6 +14,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,15 +28,32 @@ import kotlinx.serialization.json.Json
 class HabrArticleContentSource(
     private val client: HttpClient,
     private val extractor: HabrArticleContentExtractor = HabrArticleContentExtractor(),
+    private val api: HabrApiClient = HabrApiClient(client),
+    private val mapper: HabrArticleMapper = HabrArticleMapper(),
 ) : ArticleContentSource, ArticleCommentsSource {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun getArticleByUrl(url: String): ArticleContent {
         val normalizedUrl = normalizeArticleUrl(url)
+        val articleId = extractArticleId(normalizedUrl)
+
+        if (articleId != null) {
+            try {
+                return mapper.toArticleContent(
+                    dto = api.getArticle(articleId.toLong()),
+                    articleUrl = normalizedUrl,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Fallback to the public HTML page when the internal API contract changes or is unavailable.
+            }
+        }
+
         val html = client.get(normalizedUrl).bodyAsText()
         return extractor.extract(
-            articleId = extractArticleId(normalizedUrl) ?: "",
+            articleId = articleId ?: "",
             articleUrl = normalizedUrl,
             html = html,
         )

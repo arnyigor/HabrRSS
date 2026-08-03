@@ -83,7 +83,7 @@ class HabrArticleMapper {
             sourceNotice = if (dto.textHtml.isNullOrBlank()) {
                 "Контент получен из превью Habr API. Для полной версии откройте оригинал."
             } else {
-                "Контент получен через Habr API."
+                "Полная статья загружена с Habr."
             },
         )
     }
