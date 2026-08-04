@@ -132,4 +132,6 @@ jobs:
           set -euo pipefail
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes "Automated HabrRSS release."
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber release-artifacts/*
+          mapfile -d '' files < <(find release-artifacts -type f -print0)
+          test "${#files[@]}" -gt 0 || { echo "No release artifacts found"; exit 1; }
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
