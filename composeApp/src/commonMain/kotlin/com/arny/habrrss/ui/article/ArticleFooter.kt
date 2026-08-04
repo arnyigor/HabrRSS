@@ -2,17 +2,23 @@ package com.arny.habrrss.ui.article
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -22,9 +28,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedItem
@@ -55,25 +65,30 @@ internal fun ArticleFooterSections(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        if (comments.isNotEmpty()) {
-            HorizontalDivider()
-            CommentsSection(
-                comments = comments,
-                openOriginal = { validUrl?.let(actions::openUrl) },
-                showOpenButton = validUrl != null,
-                onLinkClick = ::openArticleLink,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else if (isLoadingExtras) {
-            HorizontalDivider()
-            ExtrasLoading(modifier = Modifier.fillMaxWidth())
-        } else {
-            HorizontalDivider()
-            CommentsUnavailable(
-                openOriginal = { validUrl?.let(actions::openUrl) },
-                showOpenButton = validUrl != null,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        when {
+            comments.isNotEmpty() -> {
+                HorizontalDivider()
+                CommentsSection(
+                    comments = comments,
+                    openOriginal = { validUrl?.let(actions::openUrl) },
+                    showOpenButton = validUrl != null,
+                    onLinkClick = ::openArticleLink,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            isLoadingExtras -> {
+                HorizontalDivider()
+                ExtrasLoading(modifier = Modifier.fillMaxWidth())
+            }
+
+            else -> {
+                HorizontalDivider()
+                OpenOriginalButton(
+                    openOriginal = { validUrl?.let(actions::openUrl) },
+                    showOpenButton = validUrl != null,
+                )
+            }
         }
 
         if (relatedArticles.isNotEmpty()) {
@@ -107,11 +122,10 @@ private fun CommentsSection(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
-            if (showOpenButton) {
-                OutlinedButton(onClick = openOriginal) {
-                    Text("Перейти к оригиналу")
-                }
-            }
+            OpenOriginalButton(
+                openOriginal = openOriginal,
+                showOpenButton = showOpenButton
+            )
         }
         comments.forEach { comment ->
             CommentItem(
@@ -205,27 +219,18 @@ private fun CommentItem(
 private fun CommentNode.totalCount(): Int = 1 + children.sumOf { it.totalCount() }
 
 @Composable
-private fun CommentsUnavailable(
+private fun OpenOriginalButton(
     openOriginal: () -> Unit,
     showOpenButton: Boolean,
-    modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shape = RoundedCornerShape(0.dp),
+    Column(
+        modifier = Modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Комментарии", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            if (showOpenButton) {
-                OutlinedButton(onClick = openOriginal) {
-                    Text("Перейти к оригиналу")
-                    Spacer(Modifier.width(4.dp))
-                }
+        if (showOpenButton) {
+            OutlinedButton(onClick = openOriginal) {
+                Text("Перейти к оригиналу")
+                Spacer(Modifier.width(4.dp))
             }
         }
     }
@@ -261,13 +266,21 @@ private fun RelatedArticlesSection(
             text = "Похожие статьи",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
-        articles.forEach { item ->
-            RelatedArticleCard(
-                item = item,
-                onClick = { onArticleSelected(item.id) },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+        ) {
+            items(
+                articles,
+                key = { it.id }
+            ) { item ->
+                RelatedArticleCard(
+                    item = item,
+                    onClick = { onArticleSelected(item.id) },
+                )
+            }
         }
     }
 }
@@ -278,38 +291,59 @@ private fun RelatedArticleCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(8.dp),
+    Card(
+        onClick = onClick,
+        modifier = modifier.size(220.dp),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = item.imageUrl,
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                item.author?.displayName?.let { author ->
-                    Text(
-                        text = author,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f)
+                            ),
+                            startY = 60f
+                        )
                     )
-                }
-                humanReadableDate(item.publishedAt, item.publishedAtEpoch).takeIf { it.isNotBlank() }?.let { date ->
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                val date = humanReadableDate(item.publishedAt, item.publishedAtEpoch)
+                val metaText = listOfNotNull(item.author?.displayName, date.ifBlank { null })
+                    .joinToString(" • ")
+
+                if (metaText.isNotEmpty()) {
                     Text(
-                        text = "  $date",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = metaText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
