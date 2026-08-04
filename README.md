@@ -1,50 +1,61 @@
 # HabrRSS
 
-Kotlin Multiplatform + Compose Multiplatform reader for Habr feeds.
+HabrRSS is a Kotlin Multiplatform technical reading workspace for people who track engineering articles, hub updates, discussions, and long-running research threads across Android and Desktop.
 
-The app is built around a local cache: network sources refresh the cache, and the
-UI observes cached feed snapshots. This keeps article lists stable across screen
-navigation, app restarts, and incremental archive loading.
+It is more than a simple Habr reader: the app combines an offline-first feed cache, article extraction, hub and tag navigation, bookmark state, search, and desktop/mobile parity into one focused tool for daily technical reading.
 
-## Targets
+## Why It Exists
 
-- Android
-- Desktop JVM: Windows, Linux, macOS
+Technical feeds are noisy and easy to lose. HabrRSS keeps the reading flow stable:
 
-## Current Features
+- fresh articles are loaded into a local cache before the UI changes;
+- feed position is preserved when moving between the list and an article;
+- new top articles intentionally move the list to the top;
+- older archive pages can be appended without disrupting the current reading context;
+- bookmarks, read state, filters, and display preferences stay local and fast.
 
-- Habr latest feed.
-- User-added Habr hub feeds.
-- Habr hub latest articles from dedicated RSS endpoints.
-- Habr API archive loading for hub pagination after the RSS latest page.
-- Local deduplication and sorting by publication date.
-- Room/file-backed cache with local read and bookmark state.
-- Article reader with full content loading from Habr API and HTML fallback.
-- Hub and tag chips, article cards, bookmarks, search, and reader settings.
-- Persistent article card display mode.
-- Scroll restoration when returning from an article to the feed.
-- Scroll-to-top only when a refresh actually loads newer top articles.
-- Dismissible error banner and retry flow.
-- Runtime logging for feed, API, repository, navigation, and article operations.
+## Platforms
 
-## Habr Feed Strategy
+- Android app for phones and tablets.
+- Desktop JVM app for Windows, Linux, and macOS through Compose Multiplatform.
 
-Habr hub feeds use a hybrid source model:
+## Core Capabilities
 
-- RSS is used first for the latest hub articles:
-  `https://habr.com/ru/rss/hub/<slug>/all/?fl=ru&with_hubs=true&with_tags=true`
-- Habr API is used for archive pages:
-  `/kek/v2/articles/?hub=<slug>&sort=date&period=alltime&page=N&perPage=100`
-- RSS/API results are filtered by the selected hub, deduplicated, cached, and
-  sorted by `publishedAtEpoch` descending.
-- Generated hub ids such as `hub-760110735` are treated as internal ids, not real
-  Habr slugs. When needed, article HTML is used to recover real `/hubs/<slug>/`
-  links.
+- Latest Habr publications, posts, news, hubs, tags, and custom hub feeds.
+- Hybrid feed strategy: RSS for fast latest updates, Habr API archive pagination for deeper history.
+- Full article reading through Habr API with HTML fallback.
+- Local deduplication, publication-date sorting, read state, and bookmarks.
+- Hub and tag chips for focused browsing.
+- Search, unread-only mode, card density options, theme settings, and typography controls.
+- Stable scroll restoration when returning from articles.
+- Scroll-to-top only when refresh brings newer top articles.
+- Runtime logging across feed loading, repository cache, navigation, and article extraction.
+
+## Architecture
+
+The app is built as a Kotlin Multiplatform Compose project with shared UI and presentation logic. Data loading writes to a local cache, and screens observe cache-backed snapshots instead of rendering directly from transient network responses. This makes feed updates predictable across navigation, restarts, pagination, and offline use.
+
+## Release Builds
+
+Android release signing is configured through ignored local `secret.properties` or GitHub Actions secrets:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Desktop release workflow builds portable distributable directories for the current runner OS and archives the complete app folder with runtime files included.
 
 ## Build Android
 
 ```shell
 .\gradlew.bat :composeApp:assembleDebug
+```
+
+Signed release, when signing values are present:
+
+```shell
+.\gradlew.bat :composeApp:assembleRelease :composeApp:bundleRelease
 ```
 
 ## Run Desktop
@@ -53,17 +64,14 @@ Habr hub feeds use a hybrid source model:
 .\gradlew.bat :composeApp:run
 ```
 
+Desktop distributable:
+
+```shell
+.\gradlew.bat :composeApp:createDistributable
+```
+
 ## Test
 
 ```shell
 .\gradlew.bat :composeApp:testDebugUnitTest :composeApp:jvmTest
 ```
-
-## Notes
-
-- The list UI is cache-backed, not a direct Paging UI.
-- PagingSource is used as the network-page loading engine; loaded pages are
-  written into the local cache.
-- Hub RSS usually returns only the latest page, while the Habr API can provide
-  many archive pages. The app therefore keeps RSS fast and uses API pagination
-  for long history.

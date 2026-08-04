@@ -5,6 +5,32 @@ import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import dev.detekt.gradle.Detekt
+import java.util.Properties
+
+val secretProperties = Properties().apply {
+    val file = rootProject.file("secret.properties")
+    if (file.isFile) {
+        file.inputStream().use(::load)
+    }
+}
+
+fun signingValue(name: String): String? =
+    providers.environmentVariable(name).orNull
+        ?: secretProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+
+val androidSigningKeys = listOf(
+    "ANDROID_KEYSTORE_PATH",
+    "ANDROID_KEYSTORE_PASSWORD",
+    "ANDROID_KEY_ALIAS",
+    "ANDROID_KEY_PASSWORD",
+)
+val androidSigningValues = androidSigningKeys.associateWith(::signingValue)
+val androidSigningValueCount = androidSigningValues.values.count { it != null }
+val hasAndroidReleaseSigning = androidSigningValueCount == androidSigningKeys.size
+
+if (androidSigningValueCount != 0 && !hasAndroidReleaseSigning) {
+    error("Incomplete Android release signing configuration. Expected keys: ${androidSigningKeys.joinToString()}")
+}
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -148,10 +174,24 @@ android {
             "ObsoleteLintCustomCheck",
         )
     }
+    signingConfigs {
+        create("release") {
+            if (hasAndroidReleaseSigning) {
+                storeFile = rootProject.file(androidSigningValues.getValue("ANDROID_KEYSTORE_PATH")!!)
+                storePassword = androidSigningValues.getValue("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = androidSigningValues.getValue("ANDROID_KEY_ALIAS")
+                keyPassword = androidSigningValues.getValue("ANDROID_KEY_PASSWORD")
+                storeType = "pkcs12"
+            }
+        }
+    }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (hasAndroidReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
