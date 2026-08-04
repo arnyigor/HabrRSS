@@ -44,7 +44,7 @@ jobs:
       - name: Build signed Android release
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/android-release.p12
-        run: ./gradlew :composeApp:assembleRelease :composeApp:bundleRelease --no-daemon
+        run: bash ./gradlew :composeApp:assembleRelease :composeApp:bundleRelease --no-daemon
 
       - name: Remove temporary signing key
         if: always()
@@ -83,8 +83,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build desktop distributable
-        shell: bash
-        run: ./gradlew :composeApp:createDistributable --no-daemon
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            .\gradlew.bat :composeApp:createDistributable --no-daemon
+          } else {
+            bash ./gradlew :composeApp:createDistributable --no-daemon
+          }
 
       - name: Archive desktop distributable
         shell: pwsh
