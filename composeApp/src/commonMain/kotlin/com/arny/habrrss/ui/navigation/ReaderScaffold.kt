@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.AndroidUiModes.UI_MODE_NIGHT_YES
@@ -413,25 +414,37 @@ internal fun AppNavHost(
     modifier: Modifier = Modifier,
 ) {
     val route = backStack.lastOrNull() as? Screen ?: Screen.Feed
+    val saveableStateHolder = rememberSaveableStateHolder()
     Box(modifier.fillMaxSize()) {
-        when (route) {
-            Screen.Feed -> FeedRoute(state, viewModel, openArticle, isWide)
-            Screen.Bookmarks -> BookmarksRoute(state, viewModel, openArticle, isWide)
-            Screen.Search -> SearchRoute(state, viewModel, openArticle)
-            Screen.Sources -> SourcesRoute(state, viewModel, navigateToFeed)
-            Screen.Settings -> SettingsRoute(state, viewModel)
-            is Screen.Article -> ArticleRoute(
-                route = route,
-                state = state,
-                viewModel = viewModel,
-                articleViewModel = articleViewModel,
-                openArticle = openArticle,
-                openHabrArticleUrl = openHabrArticleUrl,
-                onBack = onBack,
-                navigateToFeed = navigateToFeed,
-            )
+        saveableStateHolder.SaveableStateProvider(route.saveableStateKey()) {
+            when (route) {
+                Screen.Feed -> FeedRoute(state, viewModel, openArticle, isWide)
+                Screen.Bookmarks -> BookmarksRoute(state, viewModel, openArticle, isWide)
+                Screen.Search -> SearchRoute(state, viewModel, openArticle)
+                Screen.Sources -> SourcesRoute(state, viewModel, navigateToFeed)
+                Screen.Settings -> SettingsRoute(state, viewModel)
+                is Screen.Article -> ArticleRoute(
+                    route = route,
+                    state = state,
+                    viewModel = viewModel,
+                    articleViewModel = articleViewModel,
+                    openArticle = openArticle,
+                    openHabrArticleUrl = openHabrArticleUrl,
+                    onBack = onBack,
+                    navigateToFeed = navigateToFeed,
+                )
+            }
         }
     }
+}
+
+private fun Screen.saveableStateKey(): String = when (this) {
+    Screen.Feed -> "feed"
+    Screen.Bookmarks -> "bookmarks"
+    Screen.Search -> "search"
+    Screen.Sources -> "sources"
+    Screen.Settings -> "settings"
+    is Screen.Article -> "article:$articleId:${articleUrl.orEmpty()}"
 }
 
 @Composable

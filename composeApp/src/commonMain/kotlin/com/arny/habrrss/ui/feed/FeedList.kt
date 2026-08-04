@@ -13,7 +13,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,9 +74,15 @@ internal fun FeedList(
     val listState = rememberSaveable(listStateKey, saver = LazyListState.Saver) {
         LazyListState()
     }
-    LaunchedEffect(scrollToTopRequest) {
-        if (scrollToTopRequest > 0L) {
+    var handledScrollToTopRequest by rememberSaveable(listStateKey) {
+        mutableStateOf(scrollToTopRequest)
+    }
+    LaunchedEffect(scrollToTopRequest, listStateKey) {
+        if (scrollToTopRequest > handledScrollToTopRequest) {
+            handledScrollToTopRequest = scrollToTopRequest
             listState.animateScrollToItem(0)
+        } else if (scrollToTopRequest < handledScrollToTopRequest) {
+            handledScrollToTopRequest = scrollToTopRequest
         }
     }
 
