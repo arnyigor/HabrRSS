@@ -8,6 +8,7 @@ import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.ui.article.LINK_TAG
+import com.arny.habrrss.ui.article.habrArticleIdFromUrl
 import com.arny.habrrss.ui.article.markdownText
 import com.arny.habrrss.ui.article.normalizedExternalUrl
 import com.arny.habrrss.ui.article.plainText
@@ -140,6 +141,17 @@ class ArticleScreenTest {
         assertEquals("https://example.com/?a=1&b=2", " https://example.com/?a=1&amp;b=2 ".normalizedExternalUrl())
         assertEquals(null, "javascript:alert(1)".normalizedExternalUrl())
         assertEquals(null, "/relative/path".normalizedExternalUrl())
+    }
+
+    @Test
+    fun habrArticleIdFromUrl_extractsModernAndLegacyArticleLinks() {
+        assertEquals("habr-123", "https://habr.com/ru/articles/123/?utm=feed".habrArticleIdFromUrl())
+        assertEquals("habr-456", "https://www.habr.com/en/post/456/#comments".habrArticleIdFromUrl())
+        assertEquals("habr-789", "https://m.habr.com/ru/articles/789/".habrArticleIdFromUrl())
+        assertEquals("habr-321", "https://habr.com/ru/companies/acme/articles/321/".habrArticleIdFromUrl())
+        assertEquals("habr-654", "https://habr.com/ru/news/654/comments/".habrArticleIdFromUrl())
+        assertEquals(null, "https://habr.com/ru/hubs/kotlin/".habrArticleIdFromUrl())
+        assertEquals(null, "https://example.com/articles/123/".habrArticleIdFromUrl())
     }
 
     private fun article(url: String = "https://example.com/article"): ArticleContent = ArticleContent(

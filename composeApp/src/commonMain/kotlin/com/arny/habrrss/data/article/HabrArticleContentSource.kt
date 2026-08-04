@@ -10,6 +10,7 @@ import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.source.ArticleCommentsSource
 import com.arny.habrrss.domain.source.ArticleContentSource
+import com.arny.habrrss.domain.util.extractHabrArticleNumericId
 import com.arny.habrrss.domain.util.toEpochMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -38,6 +39,7 @@ class HabrArticleContentSource(
     override suspend fun getArticleByUrl(url: String): ArticleContent {
         val normalizedUrl = normalizeArticleUrl(url)
         val articleId = extractArticleId(normalizedUrl)
+        val domainArticleId = articleId?.let { "habr-$it" }
 
         if (articleId != null) {
             try {
@@ -58,7 +60,7 @@ class HabrArticleContentSource(
 
         val html = client.get(normalizedUrl).bodyAsText()
         return extractor.extract(
-            articleId = articleId ?: "",
+            articleId = domainArticleId ?: normalizedUrl,
             articleUrl = normalizedUrl,
             html = html,
         )
@@ -205,17 +207,16 @@ class HabrArticleContentSource(
 
     private fun normalizeArticleUrl(url: String): String {
         val value = url.replace("&amp;", "&").trim()
+        val numericId = value.removePrefix("habr-").takeIf { id -> id.all { it.isDigit() } }
         return when {
             value.startsWith("http://") || value.startsWith("https://") -> value
-            value.all { it.isDigit() } -> "https://habr.com/ru/articles/$value/"
+            numericId != null -> "https://habr.com/ru/articles/$numericId/"
             else -> value
         }
     }
 
     private fun extractArticleId(url: String): String? {
-        // Handles: /articles/123/, /posts/123/, /news/123/, /companies/x/posts/123/
-        val regex = Regex("""/(?:articles|posts|news)/(\d+)/?""")
-        return regex.find(url)?.groupValues?.getOrNull(1)
+        return url.extractHabrArticleNumericId()
     }
 }
 

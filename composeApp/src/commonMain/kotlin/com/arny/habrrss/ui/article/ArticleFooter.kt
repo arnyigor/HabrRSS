@@ -38,10 +38,19 @@ internal fun ArticleFooterSections(
     relatedArticles: List<FeedItem>,
     isLoadingExtras: Boolean,
     onRelatedArticleSelected: (String) -> Unit,
+    onHabrArticleUrlSelected: (String, String) -> Unit,
     modifier: Modifier,
 ) {
     val actions = rememberArticleActions()
     val validUrl = article.url.normalizedExternalUrl()
+    fun openArticleLink(url: String) {
+        val articleId = url.habrArticleIdFromUrl()
+        if (articleId != null) {
+            onHabrArticleUrlSelected(articleId, url)
+        } else {
+            actions.openUrl(url)
+        }
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -52,6 +61,7 @@ internal fun ArticleFooterSections(
                 comments = comments,
                 openOriginal = { validUrl?.let(actions::openUrl) },
                 showOpenButton = validUrl != null,
+                onLinkClick = ::openArticleLink,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else if (isLoadingExtras) {
@@ -82,6 +92,7 @@ private fun CommentsSection(
     comments: List<CommentNode>,
     openOriginal: () -> Unit,
     showOpenButton: Boolean,
+    onLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val settings = FeedSettings.defaults()
@@ -107,6 +118,7 @@ private fun CommentsSection(
                 comment = comment,
                 settings = settings,
                 depth = 0,
+                onLinkClick = onLinkClick,
             )
         }
     }
@@ -117,8 +129,8 @@ private fun CommentItem(
     comment: CommentNode,
     settings: FeedSettings,
     depth: Int,
+    onLinkClick: (String) -> Unit,
 ) {
-    val actions = rememberArticleActions()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -167,7 +179,7 @@ private fun CommentItem(
                         block = block,
                         settings = settings,
                         modifier = Modifier.widthIn(max = 860.dp),
-                        onLinkClick = { url -> actions.openUrl(url) },
+                        onLinkClick = onLinkClick,
                     )
                 }
                 if (comment.children.isNotEmpty()) {
@@ -180,6 +192,7 @@ private fun CommentItem(
                                 comment = child,
                                 settings = settings,
                                 depth = depth + 1,
+                                onLinkClick = onLinkClick,
                             )
                         }
                     }

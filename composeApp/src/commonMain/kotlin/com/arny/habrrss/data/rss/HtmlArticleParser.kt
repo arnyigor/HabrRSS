@@ -62,13 +62,13 @@ object HtmlArticleParser {
                 val ordered = element.tagName().lowercase() == "ol"
                 val items = element.children()
                     .filter { it.tagName().lowercase() == "li" }
-                    .map { li -> listOf(ArticleBlock.Paragraph(parseInline(li, baseUrl))) }
+                    .map { li -> parseListItem(li, baseUrl) }
                 listOf(ArticleBlock.ListBlock(ordered, items))
             }
             "table" -> listOf(parseTable(element, baseUrl))
             "img" -> {
                 listOf(ArticleBlock.Image(
-                    url = normalizeUrl(element.attr("src"), baseUrl),
+                    url = normalizeUrl(element.imageUrlCandidate(), baseUrl),
                     alt = element.attr("alt").takeIf { it.isNotBlank() }
                 ))
             }
@@ -76,7 +76,7 @@ object HtmlArticleParser {
                 // Handle figure with figcaption and nested content
                 val images = element.select("img").map { img ->
                     ArticleBlock.Image(
-                        url = normalizeUrl(img.attr("src"), baseUrl),
+                        url = normalizeUrl(img.imageUrlCandidate(), baseUrl),
                         alt = img.attr("alt").takeIf { it.isNotBlank() }
                     )
                 }
@@ -101,12 +101,8 @@ object HtmlArticleParser {
                 // Prefer source with srcset, fallback to img
                 val imageUrl: String? = sources.firstOrNull { it.attr("srcset").isNotBlank() }
                     ?.attr("srcset")
-                    ?.split(",")
-                    ?.firstOrNull()
-                    ?.trim()
-                    ?.split(" ")
-                    ?.firstOrNull()
-                    ?: img?.attr("src")
+                    ?.firstSrcSetUrl()
+                    ?: img?.imageUrlCandidate()?.takeIf { it.isNotBlank() }
 
                 if (imageUrl != null) {
                     listOf(ArticleBlock.Image(
@@ -168,6 +164,44 @@ object HtmlArticleParser {
             }
     }
 
+    private fun parseListItem(li: Element, baseUrl: String?): List<ArticleBlock> {
+        val blocks = mutableListOf<ArticleBlock>()
+        val inline = mutableListOf<InlineNode>()
+
+        fun flushInline() {
+            if (inline.isNotEmpty()) {
+                blocks.add(ArticleBlock.Paragraph(inline.toList()))
+                inline.clear()
+            }
+        }
+
+        for (node in li.childNodes()) {
+            when (node) {
+                is TextNode -> {
+                    val text = node.text()
+                    if (text.isNotBlank()) inline.add(InlineNode.Text(text))
+                }
+                is Element -> {
+                    when (node.tagName().lowercase()) {
+                        "p" -> {
+                            flushInline()
+                            blocks.add(ArticleBlock.Paragraph(parseInline(node, baseUrl)))
+                        }
+                        "ul", "ol", "pre", "blockquote", "details", "table", "figure", "picture", "img", "div", "section" -> {
+                            flushInline()
+                            blocks.addAll(parseTopLevelElement(node, baseUrl))
+                        }
+                        "br" -> inline.add(InlineNode.Text("\n"))
+                        else -> inline.addAll(parseInlineElement(node, baseUrl))
+                    }
+                }
+            }
+        }
+        flushInline()
+
+        return blocks.ifEmpty { textParagraph(li) }
+    }
+
     private fun textParagraph(element: Element): List<ArticleBlock> {
         val text = element.text().trim()
         return if (text.isNotEmpty()) listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text(text)))) else emptyList()
@@ -182,28 +216,29 @@ object HtmlArticleParser {
                     if (text.isNotBlank()) nodes.add(InlineNode.Text(text))
                 }
                 node is com.fleeksoft.ksoup.nodes.Element -> {
-                    when (node.tagName().lowercase()) {
-                        "a" -> nodes.add(InlineNode.Link(node.text(), normalizeUrl(node.attr("href"), baseUrl)))
-                        "code" -> nodes.add(InlineNode.Code(node.text()))
-                        "strong", "b" -> nodes.add(InlineNode.Bold(parseInline(node, baseUrl)))
-                        "em", "i" -> nodes.add(InlineNode.Italic(parseInline(node, baseUrl)))
-                        "sup", "sub" -> {
-                            // Wrap in italic as visual indicator (could be enhanced later)
-                            nodes.add(InlineNode.Italic(parseInline(node, baseUrl)))
-                        }
-                        "kbd" -> nodes.add(InlineNode.Code(node.text()))
-                        "mark" -> nodes.add(InlineNode.Bold(parseInline(node, baseUrl)))
-                        "del" -> {
-                            // Skip strikethrough content or wrap in special node
-                            nodes.addAll(parseInline(node, baseUrl))
-                        }
-                        "br" -> Unit
-                        else -> nodes.addAll(parseInline(node, baseUrl))
-                    }
+                    nodes.addAll(parseInlineElement(node, baseUrl))
                 }
             }
         }
         return nodes
+    }
+
+    private fun parseInlineElement(node: Element, baseUrl: String?): List<InlineNode> {
+        return when (node.tagName().lowercase()) {
+            "a" -> listOf(InlineNode.Link(node.text(), normalizeUrl(node.attr("href"), baseUrl)))
+            "code" -> listOf(InlineNode.Code(node.text()))
+            "strong", "b" -> listOf(InlineNode.Bold(parseInline(node, baseUrl)))
+            "em", "i" -> listOf(InlineNode.Italic(parseInline(node, baseUrl)))
+            "sup", "sub" -> {
+                // Wrap in italic as visual indicator (could be enhanced later)
+                listOf(InlineNode.Italic(parseInline(node, baseUrl)))
+            }
+            "kbd" -> listOf(InlineNode.Code(node.text()))
+            "mark" -> listOf(InlineNode.Bold(parseInline(node, baseUrl)))
+            "del" -> parseInline(node, baseUrl)
+            "br" -> listOf(InlineNode.Text("\n"))
+            else -> parseInline(node, baseUrl)
+        }
     }
 
     private fun normalizeUrl(url: String, baseUrl: String?): String {
@@ -221,4 +256,18 @@ object HtmlArticleParser {
             else -> origin + "/" + trimmed
         }
     }
+
+    private fun Element.imageUrlCandidate(): String =
+        attr("src")
+            .ifBlank { attr("data-src") }
+            .ifBlank { attr("data-original") }
+            .ifBlank { attr("srcset").firstSrcSetUrl() }
+
+    private fun String.firstSrcSetUrl(): String =
+        split(",")
+            .firstOrNull()
+            ?.trim()
+            ?.split(Regex("\\s+"))
+            ?.firstOrNull()
+            .orEmpty()
 }

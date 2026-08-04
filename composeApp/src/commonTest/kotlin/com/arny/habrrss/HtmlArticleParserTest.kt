@@ -128,6 +128,50 @@ class HtmlArticleParserTest {
         assertEquals("Hidden paragraph", (spoiler.blocks.first() as ArticleBlock.Paragraph).inline.plain())
         assertEquals("val answer = 42", (spoiler.blocks.last() as ArticleBlock.CodeBlock).code)
     }
+
+    @Test
+    fun preservesLineBreaksInsideInlineContent() {
+        val blocks = HtmlArticleParser.parse("""<p>First<br>Second</p>""")
+
+        val paragraph = blocks.single() as ArticleBlock.Paragraph
+
+        assertEquals("First\nSecond", paragraph.inline.plain())
+    }
+
+    @Test
+    fun preservesNestedListsInsideListItems() {
+        val blocks = HtmlArticleParser.parse(
+            """
+            <ul>
+                <li>Parent
+                    <ul>
+                        <li>Child</li>
+                    </ul>
+                </li>
+            </ul>
+            """.trimIndent(),
+        )
+
+        val list = blocks.single() as ArticleBlock.ListBlock
+        val item = list.items.single()
+
+        assertEquals("Parent", (item[0] as ArticleBlock.Paragraph).inline.plain().trim())
+        assertTrue(item[1] is ArticleBlock.ListBlock)
+        assertEquals("Child", (((item[1] as ArticleBlock.ListBlock).items.single().single()) as ArticleBlock.Paragraph).inline.plain())
+    }
+
+    @Test
+    fun extractsLazyImageUrls() {
+        val blocks = HtmlArticleParser.parse(
+            """<figure><img data-src="/images/pic.png" alt="lazy"></figure>""",
+            baseUrl = "https://habr.com/ru/articles/42/",
+        )
+
+        val image = blocks.single() as ArticleBlock.Image
+
+        assertEquals("https://habr.com/images/pic.png", image.url)
+        assertEquals("lazy", image.alt)
+    }
 }
 
 private fun List<InlineNode>.plain(): String = joinToString("") { node ->

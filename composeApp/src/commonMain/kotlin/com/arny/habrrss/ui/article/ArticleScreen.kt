@@ -212,6 +212,7 @@ internal fun ArticleScreen(
     relatedArticles: List<FeedItem> = emptyList(),
     isLoadingExtras: Boolean = false,
     onRelatedArticleSelected: (String) -> Unit = {},
+    onHabrArticleUrlSelected: (String, String) -> Unit = { _, _ -> },
 ) {
     if (article == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -291,6 +292,15 @@ internal fun ArticleScreen(
         if (searchMatches.isEmpty()) return
         currentMatchIndex = (currentMatchIndex + 1) % searchMatches.size
         scrollToBlock(searchMatches[currentMatchIndex].blockIndex)
+    }
+
+    fun openArticleLink(url: String) {
+        val articleId = url.habrArticleIdFromUrl()
+        if (articleId != null) {
+            onHabrArticleUrlSelected(articleId, url)
+        } else {
+            actions.openUrl(url)
+        }
     }
 
     Scaffold(
@@ -377,7 +387,7 @@ internal fun ArticleScreen(
                             block = block,
                             settings = settings,
                             modifier = Modifier.widthIn(max = 860.dp),
-                            onLinkClick = { url -> actions.openUrl(url) },
+                            onLinkClick = ::openArticleLink,
                             highlightQuery = if (isSearchVisible) searchQuery.trim().takeIf { it.isNotEmpty() } else null,
                             highlightCurrentRange = currentMatch
                                 ?.takeIf { it.blockIndex == index }
@@ -392,6 +402,7 @@ internal fun ArticleScreen(
                             relatedArticles = relatedArticles,
                             isLoadingExtras = isLoadingExtras,
                             onRelatedArticleSelected = onRelatedArticleSelected,
+                            onHabrArticleUrlSelected = onHabrArticleUrlSelected,
                             modifier = Modifier.widthIn(max = 860.dp),
                         )
                     }

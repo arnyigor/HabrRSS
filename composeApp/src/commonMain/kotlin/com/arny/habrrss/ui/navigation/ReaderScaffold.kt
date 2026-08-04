@@ -62,13 +62,25 @@ internal fun ReaderApp(
             .safeContentPadding(),
     ) {
         val isWide = maxWidth >= WideLayoutMinWidth
+        val currentArticleRoute = currentRoute as? Screen.Article
         val displayRoute =
             if (isWide && currentRoute is Screen.Article) backStackManager.currentTab else currentRoute
         val isArticleRoute = !isWide && currentRoute is Screen.Article
+        val isArticlePaneOpen = currentArticleRoute != null || state.isArticleOpen
         val closeArticle = {
             AppLog.i(TAG, "closeArticle current=$currentRoute")
             viewModel.dispatch(FeedIntent.CloseArticle)
             articleViewModel.close()
+        }
+        fun openArticleRoute(route: Screen.Article) {
+            val articleUrl = route.articleUrl
+            if (articleUrl != null) {
+                viewModel.dispatch(FeedIntent.OpenArticleUrl(articleUrl))
+                articleViewModel.dispatch(ArticleIntent.OpenUrl(articleUrl))
+            } else {
+                viewModel.dispatch(FeedIntent.SelectArticle(route.articleId))
+                articleViewModel.openArticle(route.articleId)
+            }
         }
         val navigateToTopLevel: (Screen) -> Unit = { screen ->
             AppLog.i(TAG, "navigateToTopLevel screen=$screen current=$currentRoute")
@@ -80,16 +92,27 @@ internal fun ReaderApp(
             AppLog.i(TAG, "popBackStack current=${backStackManager.currentRoute}")
             val removed = backStackManager.popBackStack()
             if (removed is Screen.Article) {
-                closeArticle()
+                val previousRoute = backStackManager.currentRoute
+                if (previousRoute is Screen.Article) {
+                    openArticleRoute(previousRoute)
+                } else {
+                    closeArticle()
+                }
             }
         }
         val openArticle: (String) -> Unit = { articleId ->
             AppLog.i(TAG, "openArticle articleId=$articleId isWide=$isWide current=$currentRoute")
             viewModel.dispatch(FeedIntent.SelectArticle(articleId))
             articleViewModel.openArticle(articleId)
-            if (!isWide) {
-                backStackManager.navigate(Screen.Article(articleId))
+            backStackManager.navigate(Screen.Article(articleId))
+        }
+        val openHabrArticleUrl: (String, String) -> Unit = { articleId, url ->
+            AppLog.i(TAG, "openHabrArticleUrl articleId=$articleId isWide=$isWide current=$currentRoute")
+            if (isWide) {
+                viewModel.dispatch(FeedIntent.OpenArticleUrl(url))
+                articleViewModel.dispatch(ArticleIntent.OpenUrl(url))
             }
+            backStackManager.navigate(Screen.Article(articleId, url))
         }
         val navigateToFeed: () -> Unit = {
             backStackManager.selectTopLevel(Screen.Feed)
@@ -98,8 +121,14 @@ internal fun ReaderApp(
 
         LaunchedEffect(isWide, state.isArticleOpen, state.selectedArticleId) {
             val articleId = state.selectedArticleId
-            if (!isWide && state.isArticleOpen && articleId != null) {
+            if (!isWide && state.isArticleOpen && articleId != null && backStackManager.currentRoute !is Screen.Article) {
                 backStackManager.navigate(Screen.Article(articleId))
+            }
+        }
+
+        LaunchedEffect(isWide, currentArticleRoute?.articleId, currentArticleRoute?.articleUrl) {
+            if (isWide && currentArticleRoute != null && articleState.articleId != currentArticleRoute.articleId) {
+                openArticleRoute(currentArticleRoute)
             }
         }
 
@@ -108,6 +137,7 @@ internal fun ReaderApp(
             articleState = articleState,
             selectedTopLevel = backStackManager.currentTab,
             isArticleRoute = isArticleRoute,
+            isArticlePaneOpen = isArticlePaneOpen,
             onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
             onSearchChanged = { viewModel.dispatch(FeedIntent.UpdateSearchQuery(it)) },
             onDestinationSelected = { viewModel.dispatch(FeedIntent.SelectDestination(it)) },
@@ -129,6 +159,7 @@ internal fun ReaderApp(
             onFavoriteTagToggled = { viewModel.dispatch(FeedIntent.ToggleFavoriteTag(it)) },
             onArticleBookmarkToggled = { articleViewModel.dispatch(ArticleIntent.ToggleBookmark) },
             onRelatedArticleSelected = openArticle,
+            onHabrArticleUrlSelected = openHabrArticleUrl,
             onBack = popBackStack,
             onErrorDismiss = { viewModel.dispatch(FeedIntent.DismissError) },
             navHost = { modifier, wide ->
@@ -138,6 +169,7 @@ internal fun ReaderApp(
                     viewModel = viewModel,
                     articleViewModel = articleViewModel,
                     openArticle = openArticle,
+                    openHabrArticleUrl = openHabrArticleUrl,
                     isWide = wide,
                     onBack = popBackStack,
                     navigateToFeed = navigateToFeed,
@@ -157,6 +189,7 @@ internal fun ReaderAppContent(
     articleState: ArticleUiState,
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
+    isArticlePaneOpen: Boolean,
     onRefresh: () -> Unit,
     onSearchChanged: (String) -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
@@ -169,6 +202,7 @@ internal fun ReaderAppContent(
     onFavoriteTagToggled: (String) -> Unit,
     onArticleBookmarkToggled: () -> Unit,
     onRelatedArticleSelected: (String) -> Unit,
+    onHabrArticleUrlSelected: (String, String) -> Unit,
     onBack: () -> Unit,
     onErrorDismiss: () -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
@@ -181,6 +215,7 @@ internal fun ReaderAppContent(
                 articleState = articleState,
                 selectedTopLevel = selectedTopLevel,
                 isArticleRoute = isArticleRoute,
+                isArticlePaneOpen = isArticlePaneOpen,
                 onRefresh = onRefresh,
                 onSearchChanged = onSearchChanged,
                 onDestinationSelected = onDestinationSelected,
@@ -193,6 +228,7 @@ internal fun ReaderAppContent(
                 onFavoriteTagToggled = onFavoriteTagToggled,
                 onArticleBookmarkToggled = onArticleBookmarkToggled,
                 onRelatedArticleSelected = onRelatedArticleSelected,
+                onHabrArticleUrlSelected = onHabrArticleUrlSelected,
                 onErrorDismiss = onErrorDismiss,
                 navHost = navHost,
             )
@@ -219,6 +255,7 @@ private fun ReaderWideLayout(
     articleState: ArticleUiState,
     selectedTopLevel: Screen,
     isArticleRoute: Boolean,
+    isArticlePaneOpen: Boolean,
     onRefresh: () -> Unit,
     onSearchChanged: (String) -> Unit,
     onDestinationSelected: (ReaderDestination) -> Unit,
@@ -231,6 +268,7 @@ private fun ReaderWideLayout(
     onFavoriteTagToggled: (String) -> Unit,
     onArticleBookmarkToggled: () -> Unit,
     onRelatedArticleSelected: (String) -> Unit,
+    onHabrArticleUrlSelected: (String, String) -> Unit,
     onErrorDismiss: () -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
@@ -256,7 +294,7 @@ private fun ReaderWideLayout(
         }
         val article = articleState.article
         val articleError = articleState.errorMessage
-        if (state.isArticleOpen) {
+        if (isArticlePaneOpen) {
             VerticalDivider(Modifier.fillMaxHeight())
             when {
                 article != null -> ArticleScreen(
@@ -279,6 +317,7 @@ private fun ReaderWideLayout(
                     relatedArticles = articleState.relatedArticles,
                     isLoadingExtras = articleState.isLoadingExtras,
                     onRelatedArticleSelected = onRelatedArticleSelected,
+                    onHabrArticleUrlSelected = onHabrArticleUrlSelected,
                 )
 
                 articleError != null -> Box(
@@ -367,6 +406,7 @@ internal fun AppNavHost(
     viewModel: FeedViewModel,
     articleViewModel: ArticleViewModel,
     openArticle: (String) -> Unit,
+    openHabrArticleUrl: (String, String) -> Unit,
     isWide: Boolean,
     onBack: () -> Unit,
     navigateToFeed: () -> Unit,
@@ -385,6 +425,8 @@ internal fun AppNavHost(
                 state = state,
                 viewModel = viewModel,
                 articleViewModel = articleViewModel,
+                openArticle = openArticle,
+                openHabrArticleUrl = openHabrArticleUrl,
                 onBack = onBack,
                 navigateToFeed = navigateToFeed,
             )
@@ -526,12 +568,20 @@ private fun ArticleRoute(
     state: ReaderUiState,
     viewModel: FeedViewModel,
     articleViewModel: ArticleViewModel,
+    openArticle: (String) -> Unit,
+    openHabrArticleUrl: (String, String) -> Unit,
     onBack: () -> Unit,
     navigateToFeed: () -> Unit,
 ) {
-    LaunchedEffect(route.articleId) {
-        viewModel.dispatch(FeedIntent.SelectArticle(route.articleId))
-        articleViewModel.dispatch(ArticleIntent.Open(route.articleId))
+    LaunchedEffect(route.articleId, route.articleUrl) {
+        val articleUrl = route.articleUrl
+        if (articleUrl != null) {
+            viewModel.dispatch(FeedIntent.OpenArticleUrl(articleUrl))
+            articleViewModel.dispatch(ArticleIntent.OpenUrl(articleUrl))
+        } else {
+            viewModel.dispatch(FeedIntent.SelectArticle(route.articleId))
+            articleViewModel.dispatch(ArticleIntent.Open(route.articleId))
+        }
     }
 
     val articleState by articleViewModel.state.collectAsState()
@@ -574,10 +624,8 @@ private fun ArticleRoute(
             comments = articleState.comments,
             relatedArticles = articleState.relatedArticles,
             isLoadingExtras = articleState.isLoadingExtras,
-            onRelatedArticleSelected = { articleId ->
-                viewModel.dispatch(FeedIntent.SelectArticle(articleId))
-                articleViewModel.dispatch(ArticleIntent.Open(articleId))
-            },
+            onHabrArticleUrlSelected = openHabrArticleUrl,
+            onRelatedArticleSelected = openArticle,
         )
     }
 }
@@ -591,6 +639,7 @@ private fun ReaderAppContentPreview() {
             articleState = ArticleUiState(),
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
+            isArticlePaneOpen = false,
             onRefresh = {},
             onSearchChanged = {},
             onDestinationSelected = {},
@@ -603,6 +652,7 @@ private fun ReaderAppContentPreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onHabrArticleUrlSelected = { _, _ -> },
             onBack = {},
             onErrorDismiss = {},
             navHost = { modifier, _ ->
@@ -626,6 +676,7 @@ private fun ReaderAppContentWidePreview() {
             articleState = ArticleUiState(),
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
+            isArticlePaneOpen = true,
             onRefresh = {},
             onSearchChanged = {},
             onDestinationSelected = {},
@@ -638,6 +689,7 @@ private fun ReaderAppContentWidePreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onHabrArticleUrlSelected = { _, _ -> },
             onBack = {},
             onErrorDismiss = {},
             navHost = { modifier, wide ->
@@ -658,6 +710,7 @@ private fun ReaderAppContentArticlePreview() {
             articleState = ArticleUiState(),
             selectedTopLevel = Screen.Feed,
             isArticleRoute = true,
+            isArticlePaneOpen = true,
             onRefresh = {},
             onSearchChanged = {},
             onDestinationSelected = {},
@@ -670,6 +723,7 @@ private fun ReaderAppContentArticlePreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onHabrArticleUrlSelected = { _, _ -> },
             onBack = {},
             onErrorDismiss = {},
             navHost = { modifier, _ ->
@@ -690,6 +744,7 @@ private fun ReaderAppContentErrorPreview() {
             articleState = ArticleUiState(),
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
+            isArticlePaneOpen = false,
             onRefresh = {},
             onSearchChanged = {},
             onDestinationSelected = {},
@@ -702,6 +757,7 @@ private fun ReaderAppContentErrorPreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onHabrArticleUrlSelected = { _, _ -> },
             onBack = {},
             onErrorDismiss = {},
             navHost = { modifier, _ ->
@@ -723,6 +779,7 @@ private fun ReaderAppContentDarkPreview() {
             articleState = ArticleUiState(),
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
+            isArticlePaneOpen = false,
             onRefresh = {},
             onSearchChanged = {},
             onDestinationSelected = {},
@@ -735,6 +792,7 @@ private fun ReaderAppContentDarkPreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onHabrArticleUrlSelected = { _, _ -> },
             onBack = {},
             onErrorDismiss = {},
             navHost = { modifier, _ ->
@@ -755,6 +813,7 @@ private fun ReaderAppContentLargeFontPreview() {
             articleState = ArticleUiState(),
             selectedTopLevel = Screen.Feed,
             isArticleRoute = false,
+            isArticlePaneOpen = false,
             onRefresh = {},
             onSearchChanged = {},
             onDestinationSelected = {},
@@ -767,6 +826,7 @@ private fun ReaderAppContentLargeFontPreview() {
             onFavoriteTagToggled = {},
             onArticleBookmarkToggled = {},
             onRelatedArticleSelected = {},
+            onHabrArticleUrlSelected = { _, _ -> },
             onBack = {},
             onErrorDismiss = {},
             navHost = { modifier, _ ->

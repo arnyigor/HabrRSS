@@ -49,10 +49,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -234,34 +234,25 @@ private fun InlineText(
         base.withSearchHighlight(highlightQuery ?: "", highlightCurrentRange)
     }
     if (onLinkClick != null) {
-        // Clickable text with link handling using clickable + pointerInput
-        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-        Box(
-            modifier = modifier
-                .clickable(interactionSource = interactionSource, indication = null) {
-                    // Click handled by pointerInput below
-                }
-                .pointerInput(annotatedString) {
-                    detectTapGestures { offset: Offset ->
-                        val start = offset.x.toInt().coerceIn(0, annotatedString.length - 1)
-                        val end = (offset.x.toInt() + 1).coerceIn(0, annotatedString.length)
+        var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+        SelectionContainer {
+            Text(
+                text = annotatedString,
+                modifier = modifier.pointerInput(annotatedString) {
+                    detectTapGestures { offset ->
+                        val layout = layoutResult ?: return@detectTapGestures
+                        val position = layout.getOffsetForPosition(offset)
                         val annotation = annotatedString.getStringAnnotations(
                             tag = LINK_TAG,
-                            start = start,
-                            end = end
+                            start = position,
+                            end = (position + 1).coerceAtMost(annotatedString.length),
                         ).firstOrNull()
-                        annotation?.item?.let { url ->
-                            onLinkClick(url)
-                        }
+                        annotation?.item?.let(onLinkClick)
                     }
-                }
-        ) {
-            SelectionContainer {
-                Text(
-                    text = annotatedString,
-                    style = style,
-                )
-            }
+                },
+                style = style,
+                onTextLayout = { layoutResult = it },
+            )
         }
     } else {
         SelectionContainer {

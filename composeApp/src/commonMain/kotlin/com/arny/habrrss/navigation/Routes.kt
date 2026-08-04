@@ -25,5 +25,5 @@ sealed class Screen : NavKey {
     data object Settings : Screen()
 
     @Serializable
-    data class Article(val articleId: String) : Screen()
+    data class Article(val articleId: String, val articleUrl: String? = null) : Screen()
 }

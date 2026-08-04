@@ -13,6 +13,7 @@ import com.arny.habrrss.domain.export.MarkdownExporter
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.InlineNode
+import com.arny.habrrss.domain.util.extractHabrArticleNumericId
 
 internal const val LINK_TAG = "url"
 
@@ -169,4 +170,9 @@ internal fun ArticleContent.markdownText(): String = MarkdownExporter().export(t
 internal fun String.normalizedExternalUrl(): String? {
     val normalized = trim().replace("&amp;", "&")
     return normalized.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+}
+
+internal fun String.habrArticleIdFromUrl(): String? {
+    val numericId = normalizedExternalUrl()?.extractHabrArticleNumericId() ?: return null
+    return "habr-$numericId"
 }

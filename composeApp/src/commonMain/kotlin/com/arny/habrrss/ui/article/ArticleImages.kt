@@ -12,10 +12,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -29,8 +33,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 
 @Composable
@@ -75,6 +82,7 @@ private fun ReaderImage(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    var imageState by remember(imageUrl) { mutableStateOf(ImageLoadState.Loading) }
 
     if (imageUrl.isNullOrBlank()) {
         Box(
@@ -96,28 +104,48 @@ private fun ReaderImage(
         return
     }
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+    ) {
         AsyncImage(
             model = imageUrl,
             contentDescription = contentDescription,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (showZoom) Modifier.clickable { showFullscreen = true }
+                    if (showZoom && imageState == ImageLoadState.Success) {
+                        Modifier.clickable { showFullscreen = true }
+                    }
                     else Modifier
-                )
-                .clip(RoundedCornerShape(8.dp)),
+                ),
             contentScale = contentScale,
+            onLoading = { imageState = ImageLoadState.Loading },
+            onSuccess = { imageState = ImageLoadState.Success },
+            onError = { imageState = ImageLoadState.Error },
         )
+
+        when (imageState) {
+            ImageLoadState.Loading -> ImageLoadingPreview(Modifier.matchParentSize())
+            ImageLoadState.Error -> ImageErrorPreview(
+                contentDescription = contentDescription,
+                modifier = Modifier.matchParentSize(),
+            )
+            ImageLoadState.Success -> Unit
+        }
 
         // Fullscreen zoom via Dialog for true fullscreen
         if (showFullscreen) {
-            Dialog(onDismissRequest = {
-                showFullscreen = false
-                scale = 1f
-                offsetX = 0f
-                offsetY = 0f
-            }) {
+            Dialog(
+                onDismissRequest = {
+                    showFullscreen = false
+                    scale = 1f
+                    offsetX = 0f
+                    offsetY = 0f
+                },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -137,9 +165,15 @@ private fun ReaderImage(
                             }
                             .pointerInput(Unit) {
                                 detectTransformGestures { _, pan, zoom, _ ->
-                                    scale = (scale * zoom).coerceIn(0.5f, 4f)
-                                    offsetX += pan.x
-                                    offsetY += pan.y
+                                    val nextScale = (scale * zoom).coerceIn(1f, 6f)
+                                    scale = nextScale
+                                    if (nextScale == 1f) {
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    } else {
+                                        offsetX += pan.x * nextScale
+                                        offsetY += pan.y * nextScale
+                                    }
                                 }
                             },
                         contentScale = ContentScale.Fit,
@@ -166,4 +200,67 @@ private fun ReaderImage(
             }
         }
     }
+}
+
+@Composable
+private fun ImageLoadingPreview(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(28.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Icon(
+            imageVector = Icons.Filled.Image,
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size(28.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+        )
+    }
+}
+
+@Composable
+private fun ImageErrorPreview(
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.BrokenImage,
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .size(32.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = contentDescription.takeIf { it.isNotBlank() } ?: "Изображение не загрузилось",
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 16.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+private enum class ImageLoadState {
+    Loading,
+    Success,
+    Error,
 }
