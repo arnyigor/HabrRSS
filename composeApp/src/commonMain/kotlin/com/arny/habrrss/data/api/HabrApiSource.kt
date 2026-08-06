@@ -57,6 +57,7 @@ class HabrApiSource(
                     nextCursor = request.nextCursor(response.pagesCount),
                     fromCache = false,
                     updatedAt = Clock.System.now().toEpochMilliseconds().toString(),
+                    totalPages = response.pagesCount.takeIf { it > 0 },
                 )
             }
         } catch (error: CancellationException) {

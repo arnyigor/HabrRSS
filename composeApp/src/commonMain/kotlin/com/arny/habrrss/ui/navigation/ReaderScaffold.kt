@@ -455,7 +455,6 @@ private fun FeedRoute(
     isWide: Boolean,
 ) {
     FeedScreen(
-        isWide = isWide,
         state = state,
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
         onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
@@ -466,6 +465,8 @@ private fun FeedRoute(
         isRefreshing = state.isRefreshing,
         onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
         onLoadMore = { viewModel.dispatch(FeedIntent.LoadMore) },
+        onLoadAllPages = { viewModel.dispatch(FeedIntent.LoadAllPages) },
+        onCancelLoadAllPages = { viewModel.dispatch(FeedIntent.CancelLoadAllPages) },
     )
 }
 
@@ -477,7 +478,6 @@ private fun BookmarksRoute(
     isWide: Boolean,
 ) {
     FeedScreen(
-        isWide = isWide,
         state = state,
         onHubSelected = { viewModel.dispatch(FeedIntent.SelectHub(it)) },
         onFeedSelected = { viewModel.dispatch(FeedIntent.SelectFeed(it)) },
@@ -488,6 +488,8 @@ private fun BookmarksRoute(
         isRefreshing = state.isRefreshing,
         onRefresh = { viewModel.dispatch(FeedIntent.Refresh) },
         onLoadMore = { viewModel.dispatch(FeedIntent.LoadMore) },
+        onLoadAllPages = { viewModel.dispatch(FeedIntent.LoadAllPages) },
+        onCancelLoadAllPages = { viewModel.dispatch(FeedIntent.CancelLoadAllPages) },
     )
 }
 

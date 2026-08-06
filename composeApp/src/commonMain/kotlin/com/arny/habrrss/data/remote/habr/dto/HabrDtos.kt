@@ -43,8 +43,10 @@ data class HabrLeadDataDto(
 data class HabrImageDto(
     val url: String? = null,
     val fit: String? = null,
-    val positionX: Int? = null,
-    val positionY: Int? = null,
+    // Habr returns fractional values here (e.g. "positionY":82.727272727273), so Float is
+    // required: Int fails to decode and aborts the whole page as ContractChanged.
+    val positionX: Float? = null,
+    val positionY: Float? = null,
 )
 
 @Serializable

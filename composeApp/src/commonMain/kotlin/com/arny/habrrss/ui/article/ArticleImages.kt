@@ -35,10 +35,78 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
+
+// ================= PREVIEWS =================
+
+@Preview(showBackground = true, name = "Feed Thumbnail")
+@Composable
+private fun PreviewFeedThumbnail() {
+    MaterialTheme {
+        FeedThumbnail(
+            imageUrl = "https://us.aws.cdn.hf.co/xet-bridge-us/6a5976e58e13b67a2fcde7a1/9afdd72d7ea57393b47aa04d668c3c8cee17614a1f8ba6b6a11eda87859f4ae2?response-content-disposition=inline%3B+filename*%3DUTF-8%27%27valhalla.webp%3B+filename%3D%22valhalla.webp%22%3B&X-Xet-Cas-Uid=672376364ed56f43dc30fc6b&response-content-type=image%2Fwebp&user_id=672376364ed56f43dc30fc6b&Expires=1785909252&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly91cy5hd3MuY2RuLmhmLmNvL3hldC1icmlkZ2UtdXMvNmE1OTc2ZTU4ZTEzYjY3YTJmY2RlN2ExLzlhZmRkNzJkN2VhNTczOTNiNDdhYTA0ZDY2OGMzYzhjZWUxNzYxNGExZjhiYTZiNmExMWVkYTg3ODU5ZjRhZTJcXD9yZXNwb25zZS1jb250ZW50LWRpc3Bvc2l0aW9uPWlubGluZSUzQitmaWxlbmFtZSUyQSUzRFVURi04JTI3JTI3dmFsaGFsbGEud2VicCUzQitmaWxlbmFtZSUzRCUyMnZhbGhhbGxhLndlYnAlMjIlM0ImWC1YZXQtQ2FzLVVpZD02NzIzNzYzNjRlZDU2ZjQzZGMzMGZjNmImcmVzcG9uc2UtY29udGVudC10eXBlPWltYWdlJTJGd2VicCZ1c2VyX2lkPTY3MjM3NjM2NGVkNTZmNDNkYzMwZmM2YiIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiRXBvY2hUaW1lIjoxNzg1OTA5MjUyfX19XX0_&Signature=MEQCICZysp6fQTFbftlzwxb8dpFlAz5y1K5GNprYJhMxiKS3AiB2EyKzm0O0cbsIrHGHCFZRIA81mcBJS9HUmKMo%7Ej2a7w__&Key-Pair-Id=01KXEF4KZ1B6FV465MAWR4M21F",
+            contentDescription = "Изображение статьи",
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 200.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Feed Thumbnail (Empty)")
+@Composable
+private fun PreviewFeedThumbnailEmpty() {
+    MaterialTheme {
+        FeedThumbnail(
+            imageUrl = null,
+            contentDescription = "Нет изображения",
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 100.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Article Content Image")
+@Composable
+private fun PreviewArticleContentImage() {
+    MaterialTheme {
+        ArticleContentImage(
+            imageUrl = "https://habrastorage.org/getpro/habr/upload_files/...",
+            contentDescription = "Контент статьи",
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Image Loading State")
+@Composable
+private fun PreviewImageLoading() {
+    MaterialTheme {
+        ImageLoadingPreview(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 100.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Image Error State")
+@Composable
+private fun PreviewImageError() {
+    MaterialTheme {
+        ImageErrorPreview(
+            contentDescription = "Ошибка загрузки изображения",
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 100.dp)
+        )
+    }
+}
 
 @Composable
 internal fun FeedThumbnail(

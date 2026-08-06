@@ -3,6 +3,7 @@ package com.arny.habrrss
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.database.InMemoryFeedDao
 import com.arny.habrrss.data.preferences.DefaultPreferencesRepository
+import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.data.rss.GenericRssSource
 import com.arny.habrrss.domain.models.ArticleBlock
@@ -26,9 +27,14 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -225,6 +231,176 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun loadAllRemainingPagesLoadsAllPagesAndStops() = runTest {
+        val feedId = HabrApiSource.FeedIds.hub("android_test")
+        val source = PagedHabrHubSource(
+            listOf(
+                hubPage(feedId, page = 1, count = 3),
+                hubPage(feedId, page = 2, count = 3),
+                hubPage(feedId, page = 3, count = 3),
+            ),
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed(feedId, force = true)
+        val progress = mutableListOf<Pair<Int, Int?>>()
+        val loaded = repository.loadAllRemainingPages(feedId) { processed, total ->
+            progress += processed to total
+        }
+
+        // refreshFeed already persisted page 1, so the cumulative progress starts at 2.
+        assertEquals(2, loaded)
+        assertEquals(listOf<Pair<Int, Int?>>(2 to 3, 3 to 3), progress)
+        assertEquals(9, repository.getCachedFeed(feedId).size)
+        assertEquals(3, source.getItemsCalls)
+        assertFalse(repository.hasMorePages(feedId))
+    }
+
+    @Test
+    fun loadAllRemainingPagesCancellationKeepsLoadedPages() = runTest {
+        val feedId = HabrApiSource.FeedIds.hub("android_test")
+        val source = PagedHabrHubSource(
+            pages = List(50) { hubPage(feedId, page = it + 1, count = 2) },
+            delayMillis = 10,
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed(feedId, force = true)
+        val job = launch {
+            repository.loadAllRemainingPages(feedId)
+        }
+        delay(25)
+        job.cancelAndJoin()
+
+        val cached = repository.getCachedFeed(feedId)
+        assertTrue(cached.isNotEmpty(), "cancelled import should keep already loaded pages")
+        assertTrue(cached.size < 100, "cancellation should stop before all pages, got ${cached.size}")
+        assertTrue(repository.hasMorePages(feedId))
+    }
+
+    @Test
+    fun loadAllRemainingPagesPreservesCursorOnApiError() = runTest {
+        val feedId = HabrApiSource.FeedIds.hub("android_test")
+        val source = FailingAtPageHubSource(
+            pages = listOf(
+                hubPage(feedId, page = 1, count = 3),
+                hubPage(feedId, page = 2, count = 3),
+                hubPage(feedId, page = 3, count = 3),
+            ),
+            failAtPage = 2,
+            failuresLeft = 1,
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed(feedId, force = true)
+
+        val error = assertFailsWith<HabrRemoteException.RateLimited> {
+            repository.loadAllRemainingPages(feedId)
+        }
+        assertEquals(30L, error.retryAfterSeconds)
+
+        // The already fetched page stays in the DB and the paging cursor is preserved,
+        // so the "load all pages" button remains available for a retry.
+        assertEquals(3, repository.getCachedFeed(feedId).size)
+        assertTrue(repository.hasMorePages(feedId))
+
+        // A retry continues from the failed page instead of restarting or dying.
+        repository.loadAllRemainingPages(feedId)
+        assertEquals(9, repository.getCachedFeed(feedId).size)
+        assertFalse(repository.hasMorePages(feedId))
+    }
+
+    @Test
+    fun loadAllRemainingPagesProgressContinuesFromPersistedCursor() = runTest {
+        val feedId = HabrApiSource.FeedIds.hub("android_test")
+        val source = FailingAtPageHubSource(
+            pages = listOf(
+                hubPage(feedId, page = 1, count = 3),
+                hubPage(feedId, page = 2, count = 3),
+                hubPage(feedId, page = 3, count = 3),
+            ),
+            failAtPage = 2,
+            failuresLeft = 1,
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed(feedId, force = true)
+        val firstProgress = mutableListOf<Pair<Int, Int?>>()
+        assertFailsWith<HabrRemoteException.RateLimited> {
+            repository.loadAllRemainingPages(feedId) { processed, total ->
+                firstProgress += processed to total
+            }
+        }
+
+        // Page 2 fails before any progress callback: page 1 is already persisted (via refresh),
+        // the cursor points at page 2, so the stored progress is "1 из 3", not "0".
+        assertEquals(emptyList(), firstProgress)
+        val afterFailure = repository.loadAllPagesProgress(feedId)
+        assertEquals(1, afterFailure.pagesProcessed)
+        assertEquals(3, afterFailure.totalPages)
+
+        // Restarting the import continues from the persisted position instead of zero.
+        val secondProgress = mutableListOf<Pair<Int, Int?>>()
+        repository.loadAllRemainingPages(feedId) { processed, total ->
+            secondProgress += processed to total
+        }
+        assertEquals(listOf<Pair<Int, Int?>>(2 to 3, 3 to 3), secondProgress)
+        assertFalse(repository.hasMorePages(feedId))
+
+        // Fully imported: progress equals the total even though the cursor is now null.
+        val afterComplete = repository.loadAllPagesProgress(feedId)
+        assertEquals(3, afterComplete.pagesProcessed)
+        assertEquals(3, afterComplete.totalPages)
+    }
+
+    @Test
+    fun hubRefreshAfterLoadAllAccumulatesWithoutDuplicates() = runTest {
+        val feedId = HabrApiSource.FeedIds.hub("android_test")
+        val source = PagedHabrHubSource(
+            listOf(
+                hubPage(feedId, page = 1, count = 3),
+                hubPage(feedId, page = 2, count = 3),
+                hubPage(feedId, page = 3, count = 3),
+            ),
+        )
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+        )
+
+        repository.refreshFeed(feedId, force = true)
+        repository.loadAllRemainingPages(feedId)
+        val callsAfterLoadAll = source.getItemsCalls
+
+        // Force refresh must not wipe the accumulated archive (old behavior deleted by feed).
+        repository.refreshFeed(feedId, force = true)
+        val cached = repository.getCachedFeed(feedId)
+
+        assertEquals(9, cached.size)
+        assertEquals(9, cached.map { it.id }.toSet().size)
+        assertTrue(source.getItemsCalls > callsAfterLoadAll)
+
+        // A non-forced refresh hits the fresh-cache shortcut and does not refetch.
+        val callsBeforeCachedRefresh = source.getItemsCalls
+        repository.refreshFeed(feedId, force = false)
+        assertEquals(callsBeforeCachedRefresh, source.getItemsCalls)
+        assertEquals(9, repository.getCachedFeed(feedId).size)
+    }
+
+
+    @Test
     fun getArticleUsesFullArticleFromArticleContentSource() = runTest {
         val feedDao = InMemoryFeedDao()
         val repository = TechReaderRepository(
@@ -369,6 +545,105 @@ private class FailingHabrHubSource : FeedSource {
     override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
 
     override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+}
+
+/**
+ * Paginated Habr hub archive source. [page] 1 is returned for `page == null` (latest call),
+ * subsequent [PageCursor] values map to pages 2..N; the last page reports `nextCursor = null`.
+ */
+private class PagedHabrHubSource(
+    private val pages: List<List<FeedItem>>,
+    private val delayMillis: Long = 0L,
+) : FeedSource {
+    var getItemsCalls: Int = 0
+        private set
+
+    override suspend fun getFeeds(): List<FeedDescriptor> = emptyList()
+
+    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
+        getItemsCalls += 1
+        if (delayMillis > 0) delay(delayMillis)
+        val index = page?.value?.toIntOrNull()?.minus(1) ?: 0
+        val items = pages.getOrNull(index).orEmpty()
+        val next = pages.getOrNull(index + 1)?.let { PageCursor((index + 2).toString()) }
+        return FeedPage(
+            items = items.map { it.copy(feedId = feedId) },
+            nextCursor = next,
+            fromCache = false,
+            updatedAt = "2026-08-03",
+            totalPages = pages.size,
+        )
+    }
+
+    @Deprecated("Use ArticleContentSource instead")
+    override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
+
+    override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+}
+
+/**
+ * Paginated Habr hub archive source that throws [HabrRemoteException.RateLimited] on a given
+ * page the first [failuresLeft] times it is requested, then succeeds. Used to verify that
+ * "load all pages" keeps the paging cursor intact when a page fails.
+ */
+private class FailingAtPageHubSource(
+    private val pages: List<List<FeedItem>>,
+    private val failAtPage: Int,
+    private var failuresLeft: Int = 1,
+) : FeedSource {
+    var getItemsCalls: Int = 0
+        private set
+
+    override suspend fun getFeeds(): List<FeedDescriptor> = emptyList()
+
+    override suspend fun getItems(feedId: String, page: PageCursor?): FeedPage {
+        getItemsCalls += 1
+        val pageNumber = page?.value?.toIntOrNull() ?: 1
+        if (pageNumber == failAtPage && failuresLeft > 0) {
+            failuresLeft -= 1
+            throw HabrRemoteException.RateLimited(retryAfterSeconds = 30)
+        }
+        val index = pageNumber - 1
+        val items = pages.getOrNull(index).orEmpty()
+        val next = pages.getOrNull(index + 1)?.let { PageCursor((index + 2).toString()) }
+        return FeedPage(
+            items = items.map { it.copy(feedId = feedId) },
+            nextCursor = next,
+            fromCache = false,
+            updatedAt = "2026-08-03",
+            totalPages = pages.size,
+        )
+    }
+
+    @Deprecated("Use ArticleContentSource instead")
+    override suspend fun getArticle(articleId: String): ArticleContent = error("Use ArticleContentSource")
+
+    override suspend fun getComments(articleId: String): List<CommentNode> = emptyList()
+}
+
+private fun hubPage(
+    feedId: String,
+    page: Int,
+    count: Int,
+): List<FeedItem> = List(count) { index ->
+    val globalIndex = (page - 1) * count + index
+    FeedItem(
+        id = "$feedId:habr-${1000000 + globalIndex}",
+        feedId = feedId,
+        title = "Article $globalIndex",
+        summary = "Summary $globalIndex",
+        url = "https://habr.com/ru/articles/${1000000 + globalIndex}/",
+        imageUrl = null,
+        author = Author("author", "Author", null),
+        publishedAt = "2026-08-03",
+        publishedAtEpoch = (100 - globalIndex).toLong(),
+        tags = listOf(Tag("kotlin", "Kotlin")),
+        hubs = listOf(Hub("android_test", "Разработка Android")),
+        rating = null,
+        commentsCount = null,
+        isRead = false,
+        isBookmarked = false,
+    )
 }
 
 private fun mockRssClient(): HttpClient = HttpClient(

@@ -22,6 +22,7 @@ import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedKind
+import com.arny.habrrss.domain.models.FeedLoadProgress
 import com.arny.habrrss.domain.models.FeedPage
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Hub
@@ -32,6 +33,8 @@ import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.source.FeedSource
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.time.Clock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -119,8 +122,7 @@ class TechReaderRepository(
 
         val cached = getCachedFeed(feedId)
         val previousCursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor()
-        val isHabrHubFeed = feedId.isHabrHubFeedId()
-        if (!isHabrHubFeed && !force && cached.isNotEmpty() && isCacheFresh(feedId)) {
+        if (!force && cached.isNotEmpty() && isCacheFresh(feedId)) {
             feedCursorsFlow.update { it + (feedId to previousCursor) }
             AppLog.i(
                 TAG,
@@ -147,9 +149,8 @@ class TechReaderRepository(
             return cachedFeedOrThrow(feedId, cached, previousCursor, error)
         }
         val items = page.items.applyPersistedLocalState()
-        if (isHabrHubFeed && !page.fromCache) {
-            feedDao.deleteByFeed(feedId)
-        }
+        // Hub feeds accumulate their archive across refreshes: REPLACE upsert + URL-based
+        // dedup keep the local copy consistent without wiping already loaded pages.
         val entities = page.items.changedRemoteEntities()
         if (entities.isNotEmpty()) {
             feedDao.insertAll(entities)
@@ -160,7 +161,7 @@ class TechReaderRepository(
                 "fromCache=${page.fromCache} next=${page.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
         )
 
-        val nextCursor = if (isHabrHubFeed && !page.fromCache) {
+        val nextCursor = if (feedId.isHabrHubFeedId() && !page.fromCache) {
             page.nextCursor
         } else {
             maxCursor(previousCursor, page.nextCursor)
@@ -169,7 +170,7 @@ class TechReaderRepository(
         savePagingState(
             sourceKey = feedId,
             nextCursor = nextCursor,
-            pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1),
+            pagesCount = page.totalPages ?: page.nextCursor?.value?.toIntOrNull()?.minus(1),
             completed = nextCursor == null,
         )
 
@@ -178,6 +179,7 @@ class TechReaderRepository(
             nextCursor = nextCursor,
             fromCache = false,
             updatedAt = page.updatedAt,
+            totalPages = page.totalPages,
         )
     }
 
@@ -218,7 +220,9 @@ class TechReaderRepository(
         savePagingState(
             sourceKey = feedId,
             nextCursor = page.nextCursor,
-            pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1) ?: cursor.value.toIntOrNull(),
+            pagesCount = page.totalPages
+                ?: page.nextCursor?.value?.toIntOrNull()?.minus(1)
+                ?: cursor.value.toIntOrNull(),
             completed = page.nextCursor == null,
         )
 
@@ -227,6 +231,102 @@ class TechReaderRepository(
             nextCursor = page.nextCursor,
             fromCache = false,
             updatedAt = page.updatedAt,
+            totalPages = page.totalPages,
+        )
+    }
+
+    /**
+     * Loads every remaining page of [feedId] one by one, continuing from the current cursor.
+     *
+     * The loop is cooperative: cancellation of the calling coroutine stops it at the next page
+     * boundary. Already loaded pages stay in the local database.
+     *
+     * Unlike [loadNextPage], remote errors (rate limit, server errors, contract changes) are
+     * **not** swallowed: they propagate to the caller and the paging cursor is left intact, so a
+     * later retry can continue from the failed page instead of silently losing the ability to
+     * load the archive at all.
+     *
+     * The progress reported through [onProgress] is cumulative: it starts from the pages that
+     * are already persisted for this feed, so a restarted import shows e.g. "5 из 72" instead
+     * of counting from zero again.
+     *
+     * @throws kotlinx.coroutines.CancellationException when the calling coroutine is cancelled
+     * @throws Exception when a remote page fails to load (cursor is preserved)
+     * @return number of pages loaded in this call
+     */
+    suspend fun loadAllRemainingPages(
+        feedId: String,
+        onProgress: (pagesProcessed: Int, totalPages: Int?) -> Unit = { _, _ -> },
+    ): Int {
+        if (feedId == HabrApiSource.FeedIds.AllCached) return 0
+        val syncState = feedDao.getSyncState(feedId)
+        val cursor = feedCursorsFlow.value[feedId] ?: syncState?.toPageCursor()
+        val startingProcessed = cursor?.value?.toIntOrNull()?.minus(1)?.coerceAtLeast(0) ?: 0
+        var pages = 0
+        var knownTotal: Int? = syncState?.pagesCountSnapshot
+        while (hasMorePages(feedId)) {
+            currentCoroutineContext().ensureActive()
+            val page = loadNextPageOrThrow(feedId) ?: break
+            pages += 1
+            knownTotal = page.totalPages ?: knownTotal
+            onProgress(startingProcessed + pages, knownTotal)
+        }
+        return pages
+    }
+
+    /**
+     * Progress of the archive import for [feedId]: pages already persisted locally and the last
+     * known total page count. Survives process restarts through the persisted paging cursor and
+     * the total-page snapshot, so "load all pages" can resume (and show) the real position.
+     */
+    suspend fun loadAllPagesProgress(feedId: String): FeedLoadProgress {
+        if (feedId == HabrApiSource.FeedIds.AllCached) return FeedLoadProgress(pagesProcessed = 0, totalPages = null)
+        val syncState = feedDao.getSyncState(feedId)
+        val cursor = feedCursorsFlow.value[feedId] ?: syncState?.toPageCursor()
+        val processed = when {
+            cursor != null -> cursor.value.toIntOrNull()?.minus(1)?.coerceAtLeast(0) ?: 0
+            syncState?.status == "completed" -> syncState.pagesCountSnapshot ?: syncState.pagesProcessed
+            else -> 0
+        }
+        return FeedLoadProgress(pagesProcessed = processed, totalPages = syncState?.pagesCountSnapshot)
+    }
+
+    /**
+     * Like [loadNextPage], but propagates remote errors instead of swallowing them.
+     *
+     * Used by [loadAllRemainingPages] so an API error (rate limit / server error / contract
+     * change) does not silently destroy the paging cursor: the caller can surface the error
+     * while the next page pointer stays untouched for a later retry.
+     */
+    private suspend fun loadNextPageOrThrow(feedId: String): FeedPage? {
+        val startedAt = Clock.System.now().toEpochMilliseconds()
+        val cursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor() ?: return null
+        val page = loadFeedPageWithFallback(feedId, page = cursor)
+        val items = page.items.applyPersistedLocalState()
+        val entities = page.items.changedRemoteEntities()
+        if (entities.isNotEmpty()) {
+            feedDao.insertAll(entities)
+        }
+        AppLog.i(
+            TAG,
+            "loadNextPageOrThrow loaded feedId=$feedId cursor=${cursor.value} pageItems=${page.items.size} changed=${entities.size} " +
+                "next=${page.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+        )
+        feedCursorsFlow.update { it + (feedId to page.nextCursor) }
+        savePagingState(
+            sourceKey = feedId,
+            nextCursor = page.nextCursor,
+            pagesCount = page.totalPages
+                ?: page.nextCursor?.value?.toIntOrNull()?.minus(1)
+                ?: cursor.value.toIntOrNull(),
+            completed = page.nextCursor == null,
+        )
+        return FeedPage(
+            items = items,
+            nextCursor = page.nextCursor,
+            fromCache = false,
+            updatedAt = page.updatedAt,
+            totalPages = page.totalPages,
         )
     }
 
@@ -260,7 +360,9 @@ class TechReaderRepository(
             savePagingState(
                 sourceKey = feedId,
                 nextCursor = page.nextCursor,
-                pagesCount = page.nextCursor?.value?.toIntOrNull()?.minus(1) ?: cursor.value.toIntOrNull(),
+                pagesCount = page.totalPages
+                    ?: page.nextCursor?.value?.toIntOrNull()?.minus(1)
+                    ?: cursor.value.toIntOrNull(),
                 completed = page.nextCursor == null,
             )
             AppLog.i(

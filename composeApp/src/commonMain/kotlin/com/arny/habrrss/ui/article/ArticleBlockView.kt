@@ -56,6 +56,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.FeedSettings
@@ -557,4 +558,164 @@ internal fun TagArticleChip(
             }
         },
     )
+}
+
+// ================= PREVIEWS =================
+@Preview(showBackground = true, name = "Article Block View (Paragraph)")
+@Composable
+private fun PreviewArticleBlockViewParagraph() {
+    MaterialTheme {
+        ArticleBlockView(
+            block = ArticleBlock.Paragraph(
+                inline = listOf(
+                    InlineNode.Text("Пример обычного "),
+                    InlineNode.Bold(listOf(InlineNode.Text("параграфа"))),
+                    InlineNode.Text(" с разным форматированием.")
+                )
+            ),
+            settings = FeedSettings.defaults(),
+            modifier = Modifier
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Spoiler Block (Collapsed)")
+@Composable
+private fun PreviewSpoilerBlockView() {
+    MaterialTheme {
+        SpoilerBlockView(
+            block = ArticleBlock.Spoiler(
+                title = "Спойлер к фильму",
+                blocks = listOf(
+                    ArticleBlock.Paragraph(listOf(InlineNode.Text("Здесь скрытый текст спойлера.")))
+                )
+            ),
+            settings = FeedSettings.defaults(),
+            modifier = Modifier
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Inline Text with Links & Highlight")
+@Composable
+private fun PreviewInlineText() {
+    MaterialTheme {
+        InlineText(
+            inline = listOf(
+                InlineNode.Text("Текст с "),
+                InlineNode.Link("ссылкой", "https://example.com"),
+                InlineNode.Text(" и выделением.")
+            ),
+            modifier = Modifier,
+            style = MaterialTheme.typography.bodyLarge,
+            highlightQuery = "ссылкой",
+            highlightCurrentRange = 0..100
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Ordered List Block")
+@Composable
+private fun PreviewListBlockView() {
+    MaterialTheme {
+        ListBlockView(
+            block = ArticleBlock.ListBlock(
+                ordered = true,
+                items = listOf(
+                    listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Первый пункт списка")))),
+                    listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Второй пункт списка")))),
+                    listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Третий пункт списка"))))
+                )
+            ),
+            settings = FeedSettings.defaults(),
+            modifier = Modifier
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Quote Block")
+@Composable
+private fun PreviewQuoteBlockView() {
+    MaterialTheme {
+        QuoteBlockView(
+            block = ArticleBlock.Quote(
+                blocks = listOf(
+                    ArticleBlock.Paragraph(listOf(InlineNode.Text("Это пример цитаты внутри статьи. Она выделяется вертикальной линией слева.")))
+                )
+            ),
+            settings = FeedSettings.defaults(),
+            modifier = Modifier
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code Block")
+@Composable
+private fun PreviewCodeBlockView() {
+    MaterialTheme {
+        CodeBlockView(
+            language = "kotlin",
+            code = """
+                fun main() {
+                    val greeting = "Hello, Compose!"
+                    println(greeting)
+                }
+            """.trimIndent(),
+            settings = FeedSettings.defaults(),
+            modifier = Modifier
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Table Block")
+@Composable
+private fun PreviewTableBlockView() {
+    MaterialTheme {
+        TableBlockView(
+            block = ArticleBlock.TableBlock(
+                rows = listOf(
+                    listOf(
+                        listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Заголовок 1")))),
+                        listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Заголовок 2"))))
+                    ),
+                    listOf(
+                        listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Ячейка 1")))),
+                        listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Ячейка 2"))))
+                    ),
+                    listOf(
+                        listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Ячейка 3")))),
+                        listOf(ArticleBlock.Paragraph(listOf(InlineNode.Text("Ячейка 4"))))
+                    )
+                )
+            ),
+            settings = FeedSettings.defaults(),
+            modifier = Modifier
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Hub Article Chip (Favorited)")
+@Composable
+private fun PreviewHubArticleChip() {
+    MaterialTheme {
+        HubArticleChip(
+            hub = Hub(id = "1", title = "Kotlin"),
+            favorite = true,
+            onClick = {},
+            onFavoriteClick = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Tag Article Chip (Not Favorited)")
+@Composable
+private fun PreviewTagArticleChip() {
+    MaterialTheme {
+        TagArticleChip(
+            tag = Tag(id = "1", title = "android"),
+            favorite = false,
+            onClick = {},
+            onFavoriteClick = {}
+        )
+    }
 }

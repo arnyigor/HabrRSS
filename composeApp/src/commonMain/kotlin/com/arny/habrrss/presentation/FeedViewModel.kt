@@ -13,6 +13,7 @@ import app.cash.paging.cachedIn
 import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
+import com.arny.habrrss.data.remote.habr.error.HabrRemoteException
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.domain.models.FeedDescriptor
 import com.arny.habrrss.domain.models.FeedItem
@@ -35,6 +36,8 @@ import kotlin.time.Clock
 sealed interface FeedIntent {
     data object Refresh : FeedIntent
     data object LoadMore : FeedIntent
+    data object LoadAllPages : FeedIntent
+    data object CancelLoadAllPages : FeedIntent
     data object DismissError : FeedIntent
     data class SelectFeed(val feedId: String) : FeedIntent
     data class SelectDestination(val destination: ReaderDestination) : FeedIntent
@@ -76,6 +79,7 @@ class FeedViewModel(
     private var bookmarksJob: Job? = null
     private var localStateJob: Job? = null
     private var isLoadingNextPage = false
+    private var loadAllPagesJob: Job? = null
     private var pagingSource: FeedPagingSource? = null
     private var nextPagingKey: Int? = FIRST_APPEND_PAGE
 
@@ -95,6 +99,8 @@ class FeedViewModel(
         when (intent) {
             FeedIntent.Refresh -> refresh()
             FeedIntent.LoadMore -> loadMoreItems()
+            FeedIntent.LoadAllPages -> loadAllPages()
+            FeedIntent.CancelLoadAllPages -> cancelLoadAllPages()
             FeedIntent.DismissError -> dismissError()
             is FeedIntent.SelectFeed -> selectFeed(intent.feedId)
             is FeedIntent.SelectDestination -> selectDestination(intent.destination)
@@ -258,22 +264,6 @@ class FeedViewModel(
                 )
                 refreshed = true
             }
-            if (refreshed) {
-                prefetchHabrHubArchive(feedId)
-            }
-        }
-    }
-
-    private fun prefetchHabrHubArchive(feedId: String) {
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                repository.prefetchHabrHubArchive(feedId)
-                updateState { it.copy(canLoadMore = repository.hasMorePages(feedId)) }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                AppLog.w(TAG, "prefetchHabrHubArchive ignored feedId=$feedId", error)
-            }
         }
     }
 
@@ -303,6 +293,7 @@ class FeedViewModel(
     fun selectFeed(feedId: String) {
         viewModelScope.launch(Dispatchers.Default) {
             AppLog.i(TAG, "selectFeed feedId=$feedId")
+            cancelLoadAllPagesOnFeedSwitch()
             observeFeed(feedId)
             resetPager(feedId)
             updateState { state ->
@@ -357,7 +348,8 @@ class FeedViewModel(
 
     fun loadMoreItems() {
         val feedId = mutableState.value.activeFeedId ?: return
-        if (isLoadingNextPage || !repository.hasMorePages(feedId)) return
+        if (isLoadingNextPage || loadAllPagesJob?.isActive == true) return
+        if (!repository.hasMorePages(feedId)) return
         viewModelScope.launch(Dispatchers.Default) {
             isLoadingNextPage = true
             try {
@@ -396,6 +388,71 @@ class FeedViewModel(
                 isLoadingNextPage = false
             }
         }
+    }
+
+    /**
+     * Loads every remaining page of the active hub archive in a cooperative loop.
+     * Cancellable via [cancelLoadAllPages] or by switching the active feed.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    fun loadAllPages() {
+        val feedId = mutableState.value.activeFeedId ?: return
+        if (!mutableState.value.isHubFeed) return
+        if (loadAllPagesJob?.isActive == true || isLoadingNextPage) return
+        AppLog.i(TAG, "loadAllPages start feedId=$feedId")
+        loadAllPagesJob = viewModelScope.launch(Dispatchers.Default) {
+            val progress = repository.loadAllPagesProgress(feedId)
+            updateState {
+                it.copy(
+                    loadAllPages = LoadAllPagesUiState.Running(
+                        pagesProcessed = progress.pagesProcessed,
+                        totalPages = progress.totalPages,
+                    ),
+                    canLoadMore = true,
+                    errorMessage = null,
+                )
+            }
+            try {
+                val loaded = repository.loadAllRemainingPages(feedId) { processed, total ->
+                    updateState {
+                        it.copy(loadAllPages = LoadAllPagesUiState.Running(processed, total))
+                    }
+                }
+                AppLog.i(TAG, "loadAllPages completed feedId=$feedId loaded=$loaded")
+            } catch (error: CancellationException) {
+                AppLog.i(TAG, "loadAllPages cancelled feedId=$feedId")
+                throw error
+            } catch (error: Exception) {
+                AppLog.w(TAG, "loadAllPages failed feedId=$feedId", error)
+                // The repository keeps the paging cursor intact on failure, so the button stays
+                // available and the user can retry from the page where the import stopped.
+                updateState { it.copy(errorMessage = error.toLoadAllPagesMessage()) }
+            } finally {
+                val remaining = repository.hasMorePages(feedId)
+                updateState {
+                    it.copy(
+                        loadAllPages = LoadAllPagesUiState.Idle,
+                        canLoadMore = remaining,
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelLoadAllPages() {
+        AppLog.i(TAG, "cancelLoadAllPages active=${loadAllPagesJob?.isActive}")
+        loadAllPagesJob?.cancel()
+        loadAllPagesJob = null
+        updateState { it.copy(loadAllPages = LoadAllPagesUiState.Idle) }
+    }
+
+    private fun cancelLoadAllPagesOnFeedSwitch() {
+        if (loadAllPagesJob?.isActive == true) {
+            AppLog.i(TAG, "cancelLoadAllPagesOnFeedSwitch cancelling active job")
+            loadAllPagesJob?.cancel()
+            loadAllPagesJob = null
+        }
+        updateState { it.copy(loadAllPages = LoadAllPagesUiState.Idle) }
     }
 
     fun selectDestination(destination: ReaderDestination) {
@@ -606,6 +663,7 @@ class FeedViewModel(
                     if (activeFeedRemoved) feeds.firstOrNull { it.kind == FeedKind.All }?.id
                         ?: feeds.firstOrNull()?.id else null
                 if (nextFeedId != null) {
+                    cancelLoadAllPagesOnFeedSwitch()
                     observeFeed(nextFeedId)
                     resetPager(nextFeedId)
                 }
@@ -631,6 +689,7 @@ class FeedViewModel(
                 repository.upsertCustomFeed(id = null, title = title, url = normalizedSlug)
                 val feeds = repository.getFeeds(forceRefresh = true)
                 val feed = feeds.findHubFeed(normalizedSlug) ?: return@runLoading
+                cancelLoadAllPagesOnFeedSwitch()
                 observeFeed(feed.id)
                 resetPager(feed.id)
                 updateState {
@@ -683,6 +742,7 @@ class FeedViewModel(
             ?: mutableState.value.feeds.firstOrNull { it.kind != FeedKind.Hub && it.kind != FeedKind.Custom }?.id
             ?: return
         viewModelScope.launch(Dispatchers.Default) {
+            cancelLoadAllPagesOnFeedSwitch()
             observeFeed(baseFeedId)
             resetPager(baseFeedId)
             updateState {
@@ -972,6 +1032,8 @@ private fun Int?.orZero(): Int = this ?: 0
 private fun FeedIntent.logSummary(): String = when (this) {
     FeedIntent.Refresh -> "Refresh"
     FeedIntent.LoadMore -> "LoadMore"
+    FeedIntent.LoadAllPages -> "LoadAllPages"
+    FeedIntent.CancelLoadAllPages -> "CancelLoadAllPages"
     FeedIntent.DismissError -> "DismissError"
     is FeedIntent.SelectFeed -> "SelectFeed feedId=$feedId"
     is FeedIntent.SelectDestination -> "SelectDestination destination=$destination"
@@ -996,6 +1058,13 @@ private fun FeedIntent.logSummary(): String = when (this) {
 }
 
 private fun String.looksLikeGeneratedId(): Boolean = trim().matches(Regex("-?\\d+"))
+
+private fun Throwable.toLoadAllPagesMessage(): String = when (this) {
+    is HabrRemoteException.RateLimited -> "Лимит запросов Хабра. Попробуйте позже."
+    is HabrRemoteException.Server -> "Ошибка сервера Хабра (${status}). Попробуйте позже."
+    is HabrRemoteException.ContractChanged -> "Сервис Хабра изменился. Обновите приложение."
+    else -> message ?: "Ошибка загрузки"
+}
 
 private const val MAX_CONTEXT_FILTER_CHIPS = 16
 private const val TAG = "FeedViewModel"

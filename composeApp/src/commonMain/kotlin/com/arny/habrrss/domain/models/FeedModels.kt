@@ -46,11 +46,23 @@ data class FeedPage(
     val nextCursor: PageCursor?,
     val fromCache: Boolean,
     val updatedAt: String?,
+    /** Total number of pages available for this feed, when the source reports it (API paging). */
+    val totalPages: Int? = null,
 )
 
 data class PageCursor(
     val value: String,
     val direction: CursorDirection = CursorDirection.Next,
+)
+
+/**
+ * Persisted progress of a multi-page archive import: how many pages are already in the local
+ * database and how many the source reported in total (when known). Derived from the paging
+ * cursor, so a cancelled or failed import resumes from the right page instead of restarting.
+ */
+data class FeedLoadProgress(
+    val pagesProcessed: Int,
+    val totalPages: Int?,
 )
 
 enum class CursorDirection {

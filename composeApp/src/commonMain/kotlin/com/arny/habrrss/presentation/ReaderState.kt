@@ -39,10 +39,15 @@ data class ReaderUiState(
     val articleLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val canLoadMore: Boolean = false,
+    val loadAllPages: LoadAllPagesUiState = LoadAllPagesUiState.Idle,
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),
     val feedScrollToTopRequest: Long = 0L,
 ) {
+
+    /** Whether the active feed is a Habr hub archive feed that supports loading all pages. */
+    val isHubFeed: Boolean
+        get() = activeFeedId?.startsWith(HABR_HUB_FEED_PREFIX) == true
 
     val activeFilterCount: Int
         get() = listOf(
@@ -137,6 +142,22 @@ data class FeedFilterChipState(
     val feedId: String? = null,
 )
 
+/**
+ * UI state for the "load all pages" archive import of a hub feed.
+ *
+ * [Idle] — the bar is hidden or the button is available.
+ * [Running] — pages are being loaded sequentially; [pagesProcessed] counts already
+ * downloaded pages, [totalPages] is the source-reported page count when known.
+ */
+sealed interface LoadAllPagesUiState {
+    data object Idle : LoadAllPagesUiState
+
+    data class Running(
+        val pagesProcessed: Int,
+        val totalPages: Int?,
+    ) : LoadAllPagesUiState
+}
+
 private data class HubTitle(val id: String, val title: String)
 
 private data class TagTitle(val id: String, val title: String)
@@ -176,3 +197,5 @@ enum class FeedSortMode {
     Newest,
     Rating,
 }
+
+private const val HABR_HUB_FEED_PREFIX = "habr-hub:"

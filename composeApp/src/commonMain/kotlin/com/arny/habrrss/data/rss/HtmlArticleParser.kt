@@ -73,26 +73,65 @@ object HtmlArticleParser {
                 ))
             }
             "figure" -> {
-                // Handle figure with figcaption and nested content
-                val images = element.select("img").map { img ->
-                    ArticleBlock.Image(
-                        url = normalizeUrl(img.imageUrlCandidate(), baseUrl),
-                        alt = img.attr("alt").takeIf { it.isNotBlank() }
-                    )
-                }
-                val figcaption = element.selectFirst("figcaption")?.let { fig ->
-                    ArticleBlock.Paragraph(parseInline(fig, baseUrl))
-                }
-                val otherContent = element.children()
-                    .filter { it.tagName().lowercase() !in listOf("img", "figcaption") }
-                    .flatMap { parseTopLevelElement(it, baseUrl) }
+                val content = element.children().flatMap { child ->
+                    when (child.tagName().lowercase()) {
+                        "img" -> {
+                            val url = normalizeUrl(
+                                child.imageUrlCandidate(),
+                                baseUrl
+                            )
 
-                val allContent = mutableListOf<ArticleBlock>()
-                allContent.addAll(images)
-                figcaption?.let { allContent.add(it) }
-                allContent.addAll(otherContent)
+                            if (url.isBlank()) {
+                                emptyList()
+                            } else {
+                                listOf(
+                                    ArticleBlock.Image(
+                                        url = url,
+                                        alt = child.attr("alt")
+                                            .trim()
+                                            .takeIf(String::isNotEmpty)
+                                    )
+                                )
+                            }
+                        }
 
-                allContent.ifEmpty { textParagraph(element) }
+                        "picture" -> {
+                            val img = child.selectFirst("img")
+                                ?: return@flatMap emptyList()
+
+                            val url = normalizeUrl(
+                                img.imageUrlCandidate(),
+                                baseUrl
+                            )
+
+                            if (url.isBlank()) {
+                                emptyList()
+                            } else {
+                                listOf(
+                                    ArticleBlock.Image(
+                                        url = url,
+                                        alt = img.attr("alt")
+                                            .trim()
+                                            .takeIf(String::isNotEmpty)
+                                    )
+                                )
+                            }
+                        }
+
+                        "figcaption" -> {
+                            parseInline(child, baseUrl)
+                                .takeIf { it.isNotEmpty() }
+                                ?.let { listOf(ArticleBlock.Paragraph(it)) }
+                                ?: emptyList()
+                        }
+
+                        else -> parseTopLevelElement(child, baseUrl)
+                    }
+                }
+
+                content.ifEmpty {
+                    textParagraph(element)
+                }
             }
             "picture" -> {
                 // Handle picture with source elements
@@ -215,7 +254,7 @@ object HtmlArticleParser {
                     val text = node.text()
                     if (text.isNotBlank()) nodes.add(InlineNode.Text(text))
                 }
-                node is com.fleeksoft.ksoup.nodes.Element -> {
+                node is Element -> {
                     nodes.addAll(parseInlineElement(node, baseUrl))
                 }
             }

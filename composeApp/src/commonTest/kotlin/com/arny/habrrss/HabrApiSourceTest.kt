@@ -82,6 +82,43 @@ class HabrApiSourceTest {
     }
 
     @Test
+    fun parsesFractionalImagePositionWithoutContractChange() = runTest {
+        // Habr returns fractional image coordinates (positionY: 82.727272727273). They must not
+        // abort the whole page decode with ContractChanged (regression for archive pagination).
+        val source = HabrApiSource(
+            mockJsonClient(
+                """
+                {
+                  "pagesCount": 1,
+                  "publicationIds": ["1"],
+                  "publicationRefs": {
+                    "1": {
+                      "id": "1",
+                      "timePublished": "2026-08-03T10:15:00+03:00",
+                      "titleHtml": "Image",
+                      "leadData": {
+                        "textHtml": "<p>Preview</p>",
+                        "image": {
+                          "url": "https://habrastorage.org/img.png",
+                          "fit": "cover",
+                          "positionX": 2,
+                          "positionY": 82.727272727273
+                        }
+                      }
+                    }
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+
+        val page = source.getItems(HabrApiSource.FeedIds.All, page = null)
+
+        assertEquals(listOf("habr-1"), page.items.map { it.id })
+        assertNull(page.nextCursor)
+    }
+
+    @Test
     fun mapsValidationStatusToTypedException() = runTest {
         val client = mockJsonClient(
             body = """{"httpCode":422,"message":"Form errors"}""",

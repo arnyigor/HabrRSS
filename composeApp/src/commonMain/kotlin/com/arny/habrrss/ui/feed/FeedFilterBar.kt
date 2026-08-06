@@ -8,16 +8,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.presentation.FeedFilterChipState
+import com.arny.habrrss.presentation.LoadAllPagesUiState
 import com.arny.habrrss.presentation.ReaderDestination
 import com.arny.habrrss.presentation.ReaderUiState
 
@@ -43,6 +48,8 @@ internal fun FeedFilterBar(
     onFeedSelected: (String) -> Unit,
     onTagSelected: (String?) -> Unit,
     onClearFilters: () -> Unit,
+    onLoadAllPages: () -> Unit = {},
+    onCancelLoadAllPages: () -> Unit = {},
 ) {
     val hubs = state.hubFilters
     val tags = state.tagFilters
@@ -125,6 +132,15 @@ internal fun FeedFilterBar(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                if (state.isHubFeed) {
+                    LoadAllPagesBar(
+                        state = state.loadAllPages,
+                        canLoadMore = state.canLoadMore,
+                        onLoadAllPages = onLoadAllPages,
+                        onCancelLoadAllPages = onCancelLoadAllPages,
+                    )
+                }
             }
             if (state.activeFilterCount > 0) {
                 ChipRow {
@@ -135,6 +151,78 @@ internal fun FeedFilterBar(
                     )
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun LoadAllPagesBar(
+    state: LoadAllPagesUiState,
+    canLoadMore: Boolean,
+    onLoadAllPages: () -> Unit,
+    onCancelLoadAllPages: () -> Unit,
+) {
+    when (state) {
+        LoadAllPagesUiState.Idle -> {
+            if (canLoadMore) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = onLoadAllPages,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Загрузить все страницы")
+                    }
+                }
+            }
+        }
+
+        is LoadAllPagesUiState.Running -> {
+            LoadAllPagesProgressRow(
+                pagesProcessed = state.pagesProcessed,
+                totalPages = state.totalPages,
+                onCancelClick = onCancelLoadAllPages
+            )
+        }
+    }
+}
+
+@Composable
+fun LoadAllPagesProgressRow(
+    pagesProcessed: Int,
+    totalPages: Int?,
+    onCancelClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val progressLabel = totalPages
+        ?.takeIf { it > 0 }
+        ?.let { total -> "Страница $pagesProcessed из $total" }
+        ?: "Загружено страниц: $pagesProcessed"
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+        )
+        Text(
+            text = progressLabel,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 12.dp),
+        )
+        TextButton(onClick = onCancelClick) {
+            Text("Отмена")
         }
     }
 }
@@ -284,7 +372,9 @@ private fun previewState(
     selectedTagId: String? = null,
     searchQuery: String = "",
     showUnreadOnly: Boolean = false,
+    activeFeedId: String = "",
 ): ReaderUiState = ReaderUiState(
+    activeFeedId = activeFeedId,
     hubFilters = hubFilters,
     tagFilters = tagFilters,
     selectedHubId = selectedHubId,
