@@ -321,10 +321,6 @@ class FeedViewModel(
         }
     }
 
-    fun loadArticleInPane(articleId: String) {
-        selectArticle(articleId)
-    }
-
     fun selectArticle(articleId: String) {
         AppLog.i(TAG, "selectArticle articleId=$articleId")
         updateState { state ->

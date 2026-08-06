@@ -36,6 +36,8 @@ import androidx.compose.ui.tooling.preview.AndroidUiModes.UI_MODE_NIGHT_YES
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.data.api.HabrApiSource
+import com.arny.habrrss.domain.models.FeedItem
+import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.presentation.FeedFilterChipState
 import com.arny.habrrss.presentation.LoadAllPagesUiState
 import com.arny.habrrss.presentation.ReaderDestination
@@ -244,6 +246,9 @@ private fun buildFilterSummary(
     if (hubCount > 0) append(" · $hubCount хабов")
     if (tagCount > 0) append(" · $tagCount тегов")
     if (state.activeFilterCount > 0) append(" · фильтров: ${state.activeFilterCount}")
+    if (state.loadAllPages is LoadAllPagesUiState.Running) {
+        append(" · загрузка: ${state.loadAllPages.pagesProcessed}/${state.loadAllPages.totalPages}")
+    }
 }
 
 @Composable
@@ -333,7 +338,6 @@ private fun FeedFilterChip(
     }
 }
 
-
 private fun previewChip(
     id: String,
     title: String,
@@ -373,6 +377,9 @@ private fun previewState(
     searchQuery: String = "",
     showUnreadOnly: Boolean = false,
     activeFeedId: String = "",
+    canLoadMore: Boolean = false,
+    loadAllPages: LoadAllPagesUiState = LoadAllPagesUiState.Idle,
+    visibleItems: List<FeedItem> = emptyList(),
 ): ReaderUiState = ReaderUiState(
     activeFeedId = activeFeedId,
     hubFilters = hubFilters,
@@ -381,6 +388,9 @@ private fun previewState(
     selectedTagId = selectedTagId,
     searchQuery = searchQuery,
     showUnreadOnly = showUnreadOnly,
+    canLoadMore = canLoadMore,
+    loadAllPages = loadAllPages,
+    visibleItems = visibleItems,
 )
 
 @Preview(
@@ -497,6 +507,74 @@ private fun FeedFilterBarLargeFontPreview() {
         state = previewState(
             hubFilters = previewHubs,
             tagFilters = previewTags,
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+private fun previewFeedItem(id: String): FeedItem = FeedItem(
+    id = id,
+    feedId = "feed",
+    title = "",
+    summary = "",
+    url = "",
+    imageUrl = null,
+    author = null,
+    publishedAt = null,
+    publishedAtEpoch = null,
+    tags = emptyList(),
+    hubs = listOf(Hub(id = "devops", title = "DevOps", slug = "devops")),
+    rating = null,
+    commentsCount = null,
+    isRead = false,
+    isBookmarked = false,
+)
+
+@Preview(
+    name = "LoadAllPages · кнопка",
+    group = "FeedFilterBar",
+    showBackground = true,
+    widthDp = 420,
+)
+@Composable
+private fun FeedFilterBarLoadAllPagesPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs.map { it.copy(selected = it.id == "devops") },
+            tagFilters = previewTags,
+            selectedHubId = "devops",
+            activeFeedId = "habr-hub:devops:articles",
+            canLoadMore = true,
+            loadAllPages = LoadAllPagesUiState.Idle,
+            visibleItems = listOf(previewFeedItem("1")),
+        ),
+        onHubSelected = {},
+        onFeedSelected = {},
+        onTagSelected = {},
+        onClearFilters = {},
+    )
+}
+
+@Preview(
+    name = "LoadAllPages · прогресс",
+    group = "FeedFilterBar",
+    showBackground = true,
+    widthDp = 420,
+)
+@Composable
+private fun FeedFilterBarLoadAllPagesRunningPreview() {
+    FeedFilterBar(
+        state = previewState(
+            hubFilters = previewHubs.map { it.copy(selected = it.id == "backend") },
+            tagFilters = previewTags,
+            selectedHubId = "backend",
+            activeFeedId = "habr-hub:backend:articles",
+            canLoadMore = true,
+            loadAllPages = LoadAllPagesUiState.Running(pagesProcessed = 3, totalPages = 10),
+            visibleItems = listOf(previewFeedItem("1")),
         ),
         onHubSelected = {},
         onFeedSelected = {},
