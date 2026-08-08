@@ -111,13 +111,7 @@ class TechReaderRepository(
         val startedAt = Clock.System.now().toEpochMilliseconds()
         AppLog.i(TAG, "refreshFeed start feedId=$feedId force=$force")
         if (feedId == HabrApiSource.FeedIds.AllCached) {
-            AppLog.i(TAG, "refreshFeed local-all from cache elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms")
-            return FeedPage(
-                items = getCachedFeed(feedId),
-                nextCursor = null,
-                fromCache = true,
-                updatedAt = null,
-            )
+            return refreshAllCachedFeed(startedAt)
         }
 
         val cached = getCachedFeed(feedId)
@@ -180,6 +174,30 @@ class TechReaderRepository(
             fromCache = false,
             updatedAt = page.updatedAt,
             totalPages = page.totalPages,
+        )
+    }
+
+    /**
+     * "Все загруженные" never hits the network: it returns only the first page of the local
+     * archive (plus no cursor), because the UI browses the cache page by page via
+     * [observeLocalAllPage]. Mapping every cached row here would freeze the start screen on a
+     * large archive.
+     */
+    private suspend fun refreshAllCachedFeed(startedAt: Long): FeedPage {
+        val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
+        val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
+        val entities = feedDao.getAllCachedPaged(null, null, null, false, LOCAL_ALL_PAGE_SIZE, 0).first()
+        val items = entities.map { it.toDomain(json, localStates, favorites) }
+            .distinctBy { it.articleIdentityKey() }
+        AppLog.i(
+            TAG,
+            "refreshFeed local-all first page items=${items.size} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+        )
+        return FeedPage(
+            items = items,
+            nextCursor = null,
+            fromCache = true,
+            updatedAt = null,
         )
     }
 
@@ -390,6 +408,36 @@ class TechReaderRepository(
             .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
             .distinctBy { it.articleIdentityKey() }
     }.distinctUntilChanged()
+
+    /**
+     * Paged observation of the whole local archive ("Все загруженные"). Unlike [observeFeed] it
+     * never materializes the full cache: the DAO slices a page (with filters pushed to SQL) and only
+     * the rows of that page are mapped to domain objects.
+     */
+    fun observeLocalAllPage(
+        limit: Int,
+        offset: Int,
+        hubFilter: String? = null,
+        tagFilter: String? = null,
+        query: String? = null,
+        hideRead: Boolean = false,
+    ): Flow<List<FeedItem>> = combine(
+        feedDao.getAllCachedPaged(hubFilter, tagFilter, query, hideRead, limit, offset),
+        feedDao.getArticleLocalStates(),
+        feedDao.getFavoriteArticles(),
+    ) { entities, localStates, favorites ->
+        entities
+            .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+            .distinctBy { it.articleIdentityKey() }
+    }.distinctUntilChanged()
+
+    /** Total rows matching [observeLocalAllPage] filters; used to know whether another page exists. */
+    suspend fun countLocalAll(
+        hubFilter: String? = null,
+        tagFilter: String? = null,
+        query: String? = null,
+        hideRead: Boolean = false,
+    ): Int = feedDao.countAllCachedPaged(hubFilter, tagFilter, query, hideRead)
 
     fun observeBookmarks(): Flow<List<FeedItem>> = combine(
         feedDao.getBookmarks(),
@@ -1132,4 +1180,5 @@ private const val RELATED_ARTICLES_LIMIT = 6
 private const val TAG_MATCH_WEIGHT = 2
 private const val HUB_MATCH_WEIGHT = 1
 private const val FEED_REFRESH_TTL_MILLIS = 60L * 60L * 1_000L
+private const val LOCAL_ALL_PAGE_SIZE = 200
 private const val TAG = "Repository"

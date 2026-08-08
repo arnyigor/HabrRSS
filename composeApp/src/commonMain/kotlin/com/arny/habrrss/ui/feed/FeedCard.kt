@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -78,8 +79,6 @@ internal fun FeedCard(
                     text = item.title,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = if (item.isRead) FontWeight.SemiBold else FontWeight.Bold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
                 )
 
                 // Magazine mode: large image below title
@@ -90,7 +89,8 @@ internal fun FeedCard(
                         contentDescription = "Обложка статьи",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp)
+                            .height(180.dp),
+                        requestSize = 1024,
                     )
                 }
 
@@ -108,34 +108,23 @@ internal fun FeedCard(
                             text = item.summary,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         FeedThumbnail(
                             imageUrl = item.imageUrl,
                             contentDescription = "Обложка",
                             modifier = Modifier
-                                .size(80.dp)
+                                .size(80.dp),
+                            requestSize = 256,
                         )
                     }
                 } else if (mode != FeedCardMode.CompactText && item.summary.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
-                    if (mode == FeedCardMode.Magazine) {
-                        Text(
-                            text = item.summary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        Text(
-                            text = item.summary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Text(
+                        text = item.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -183,13 +172,18 @@ private fun FeedCardAuthorLine(item: FeedItem) {
 
 @Composable
 private fun FeedMetaLine(item: FeedItem) {
+    // Reading time is derived from summary+HTML on every call; cache per item so scrolling
+    // through the list doesn't re-run regex work on each recomposition.
+    val readingMinutes = remember(item.id) { item.estimatedReadingMinutes() }
     Row(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Простой", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        Text("${item.estimatedReadingMinutes()} мин", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("RSS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = "$readingMinutes мин чтения",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -198,14 +192,15 @@ private fun FeedCardActions(
     item: FeedItem,
     onBookmark: () -> Unit,
 ) {
+    val scoreLabel = remember(item.id) { item.habrScoreLabel() }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Text(
-            text = item.habrScoreLabel(),
+            text = scoreLabel,
             style = MaterialTheme.typography.labelLarge,
-            color = if (item.habrScoreLabel().startsWith("+")) {
+            color = if (scoreLabel.startsWith("+")) {
                 MaterialTheme.colorScheme.primary
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -232,19 +227,19 @@ private fun MetadataRow(
     hubs: List<Hub>,
     tags: List<Tag>,
 ) {
-    Row(
+    // FlowRow wraps instead of truncating, so long tag names are fully visible.
+    FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        (hubs.take(2).map { it.title } + tags.take(3).map { "#${it.title}" })
-            .take(4)
-            .forEach { CompactChip(it) }
+        hubs.take(3).forEach { CompactChip(it.title) }
+        tags.take(6).forEach { CompactChip("#${it.title}") }
     }
 }
 
 @Composable
 private fun CompactChip(label: String) {
     Surface(
-        modifier = Modifier.widthIn(max = 180.dp),
         shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {

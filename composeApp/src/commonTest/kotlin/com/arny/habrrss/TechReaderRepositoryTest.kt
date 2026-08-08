@@ -30,6 +30,7 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -100,6 +101,52 @@ class TechReaderRepositoryTest {
         val cached = repository.getCachedFeed(HabrApiSource.FeedIds.AllCached)
 
         assertEquals(setOf("one", "two"), cached.map { it.id }.toSet())
+    }
+
+    @Test
+    fun observeLocalAllPageWalksWholeCacheWithPaging() = runTest {
+        val repository = TechReaderRepository(
+            primarySource = MutableRemoteFeedSource(
+                listOf(
+                    remoteItem(id = "one", title = "Kotlin Flow"),
+                    remoteItem(id = "two", title = "Compose UI"),
+                    remoteItem(id = "three", title = "Coroutines"),
+                ),
+            ),
+            feedDao = InMemoryFeedDao(),
+        )
+        repository.refreshFeed("feed")
+
+        // refreshFeed(AllCached) mirrors the cache through the same paged DAO path.
+        val refreshed = repository.refreshFeed(HabrApiSource.FeedIds.AllCached)
+        assertEquals(setOf("one", "two", "three"), refreshed.items.map { it.id }.toSet())
+
+        val page1 = repository.observeLocalAllPage(limit = 2, offset = 0).first()
+        val page2 = repository.observeLocalAllPage(limit = 2, offset = 2).first()
+        assertEquals(2, page1.size)
+        assertEquals(1, page2.size)
+        assertEquals(3, repository.countLocalAll())
+        assertEquals(setOf("one", "two", "three"), (page1.map { it.id } + page2.map { it.id }).toSet())
+    }
+
+    @Test
+    fun observeLocalAllPageAppliesUnreadFilter() = runTest {
+        val dao = InMemoryFeedDao()
+        val repository = TechReaderRepository(
+            primarySource = MutableRemoteFeedSource(
+                listOf(
+                    remoteItem(id = "one", title = "Kotlin Flow"),
+                    remoteItem(id = "two", title = "Compose UI"),
+                ),
+            ),
+            feedDao = dao,
+        )
+        repository.refreshFeed("feed")
+        dao.upsertArticleLocalState(com.arny.habrrss.data.database.ArticleLocalStateEntity(articleId = "one", isRead = true))
+
+        assertEquals(2, repository.countLocalAll())
+        assertEquals(1, repository.countLocalAll(hideRead = true))
+        assertEquals(listOf("two"), repository.observeLocalAllPage(limit = 10, offset = 0, hideRead = true).first().map { it.id })
     }
 
     @Test

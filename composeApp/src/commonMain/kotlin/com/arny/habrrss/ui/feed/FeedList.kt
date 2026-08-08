@@ -26,6 +26,7 @@ import com.arny.habrrss.presentation.FeedCardMode
 import com.arny.habrrss.presentation.ReaderUiState
 import com.arny.habrrss.ui.components.EmptyState
 import com.arny.habrrss.ui.components.RefreshBox
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 
@@ -87,7 +88,8 @@ internal fun FeedList(
     }
 
     // Load more when reaching end of list. Keep it distinct to avoid repeated calls while
-    // LazyColumn is remeasuring the same tail items.
+    // LazyColumn is remeasuring the same tail items. Debounce keeps a fast fling from
+    // triggering a burst of loadMore calls as the tail index oscillates.
     LaunchedEffect(listState, canLoadMore, items.size) {
         if (!canLoadMore) return@LaunchedEffect
         snapshotFlow {
@@ -102,6 +104,7 @@ internal fun FeedList(
         }
             .distinctUntilChanged()
             .filter { it.shouldLoad }
+            .debounce(150)
             .collect { onLoadMore() }
     }
 

@@ -32,6 +32,29 @@ class InMemoryFeedDao : FeedDao {
     override suspend fun getAllCachedOnce(): List<FeedItemEntity> =
         items.sortedByDescending { it.publishedAtEpoch ?: it.fetchedAt }
 
+    override fun getAllCachedPaged(
+        hubFilter: String?,
+        tagFilter: String?,
+        query: String?,
+        hideRead: Boolean,
+        limit: Int,
+        offset: Int,
+    ): Flow<List<FeedItemEntity>> =
+        version.map {
+            items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt }
+                .matching(hubFilter, tagFilter, query, hideRead)
+                .drop(offset)
+                .take(limit)
+        }
+
+    override suspend fun countAllCachedPaged(
+        hubFilter: String?,
+        tagFilter: String?,
+        query: String?,
+        hideRead: Boolean,
+    ): Int =
+        items.matching(hubFilter, tagFilter, query, hideRead).size
+
     override suspend fun getById(id: String): FeedItemEntity? =
         items.firstOrNull { it.id == id }
 
@@ -169,4 +192,25 @@ class InMemoryFeedDao : FeedDao {
 
     private fun List<FeedItemEntity>.bookmarks(): List<FeedItemEntity> =
         filter { it.id in favoriteArticles }.sortedByDescending { favoriteArticles[it.id]?.createdAt ?: it.fetchedAt }
+
+    private fun List<FeedItemEntity>.matching(
+        hubFilter: String?,
+        tagFilter: String?,
+        query: String?,
+        hideRead: Boolean,
+    ): List<FeedItemEntity> =
+        filter { item ->
+            (hubFilter == null || item.hubsJson.contains(hubFilter, ignoreCase = true)) &&
+                (tagFilter == null || item.tagsJson.contains(tagFilter, ignoreCase = true)) &&
+                (query == null || item.matchesQuery(query)) &&
+                (!hideRead || localStates[item.id]?.isRead != true)
+        }
+
+    private fun FeedItemEntity.matchesQuery(query: String): Boolean =
+        title.contains(query, ignoreCase = true) ||
+            summary.contains(query, ignoreCase = true) ||
+            descriptionHtml?.contains(query, ignoreCase = true) == true ||
+            tagsJson.contains(query, ignoreCase = true) ||
+            hubsJson.contains(query, ignoreCase = true) ||
+            authorName?.contains(query, ignoreCase = true) == true
 }

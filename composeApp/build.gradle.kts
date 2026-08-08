@@ -98,7 +98,6 @@ kotlin {
                 exclude(group = "androidx.compose.runtime")
                 exclude(group = "androidx.compose.ui")
             }
-            implementation(libs.cash.paging.common)
             // Koin for DI
             implementation(libs.koin.core)
             implementation(libs.koin.compose)

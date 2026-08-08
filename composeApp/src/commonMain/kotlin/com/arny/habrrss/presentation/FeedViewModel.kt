@@ -2,14 +2,6 @@ package com.arny.habrrss.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.cash.paging.Pager
-import app.cash.paging.PagingConfig
-import app.cash.paging.PagingData
-import app.cash.paging.PagingSourceLoadParamsAppend
-import app.cash.paging.PagingSourceLoadResultError
-import app.cash.paging.PagingSourceLoadResultInvalid
-import app.cash.paging.PagingSourceLoadResultPage
-import app.cash.paging.cachedIn
 import com.arny.habrrss.core.logging.AppLog
 import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
@@ -24,7 +16,6 @@ import com.arny.habrrss.presentation.feed.HabrPublicationSection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -80,15 +71,15 @@ class FeedViewModel(
     private var localStateJob: Job? = null
     private var isLoadingNextPage = false
     private var loadAllPagesJob: Job? = null
-    private var pagingSource: FeedPagingSource? = null
-    private var nextPagingKey: Int? = FIRST_APPEND_PAGE
-
-    private val pagingConfig = PagingConfig(
-        pageSize = PAGE_SIZE,
-        prefetchDistance = PAGE_PREFETCH_DISTANCE,
-        enablePlaceholders = false,
-    )
-    private var pagingFlow: Flow<PagingData<FeedItem>>? = null
+    // Local "Все загруженные" paging cursor. The DB-backed archive is browsed page by page, so
+    // opening it does not map the whole cache to domain objects at once.
+    private var localAllOffset = 0
+    private var localAllHasMore = false
+    // Memoization for the expensive derived UI data (visibleItems + filter chips). The cache key
+    // is derived from the inputs of computeVisibleItems/withFilterChips, so unrelated state updates
+    // (progress ticks, scroll requests, ...) do not re-scan the whole item list on every change.
+    private var derivedCacheKey: String? = null
+    private var derivedCache: DerivedFeedData? = null
 
     init {
         viewModelScope.launch(Dispatchers.Default) { start() }
@@ -151,7 +142,6 @@ class FeedViewModel(
         observeFeed(activeFeedId)
         observeBookmarks()
         observeLocalFavorites()
-        resetPager(activeFeedId)
         refresh(force = false)
         AppLog.i(
             TAG,
@@ -175,18 +165,73 @@ class FeedViewModel(
     private fun observeFeed(feedId: String) {
         AppLog.i(TAG, "observeFeed feedId=$feedId")
         feedJob?.cancel()
+        // A pending load-more (e.g. a local archive page request) must not leak its in-flight flag
+        // into the newly observed feed, otherwise loadMoreItems() stays blocked forever.
+        isLoadingNextPage = false
+        if (feedId == HabrApiSource.FeedIds.AllCached) {
+            localAllOffset = 0
+            localAllHasMore = false
+        }
         feedJob = viewModelScope.launch(Dispatchers.Default) {
-            repository.observeFeed(feedId).flowOn(Dispatchers.Default).collect { items ->
-                AppLog.d(TAG, "observeFeed emission feedId=$feedId items=${items.size}")
-                updateState { state ->
-                    val selected = state.selectedArticleId
-                    state.copy(
-                        items = items,
-                        selectedArticleBookmarked = items.firstOrNull { it.id == selected }?.isBookmarked
-                            ?: state.selectedArticleBookmarked,
-                    )
+            if (feedId == HabrApiSource.FeedIds.AllCached) {
+                observeLocalAllPageFlow(feedId)
+            } else {
+                repository.observeFeed(feedId).flowOn(Dispatchers.Default).collect { items ->
+                    AppLog.d(TAG, "observeFeed emission feedId=$feedId items=${items.size}")
+                    updateState { state ->
+                        val selected = state.selectedArticleId
+                        state.copy(
+                            items = items,
+                            selectedArticleBookmarked = items.firstOrNull { it.id == selected }?.isBookmarked
+                                ?: state.selectedArticleBookmarked,
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * Collects one page of the local "Все загруженные" archive (plus the current SQL filters).
+     * Pages are appended to the already loaded items, except the first page which replaces them.
+     */
+    private suspend fun observeLocalAllPageFlow(feedId: String) {
+        val filters = mutableState.value
+        val hubFilter = filters.selectedHubId
+        val tagFilter = filters.selectedTagId
+        val query = filters.searchQuery.takeIf { it.isNotBlank() }
+        val hideRead = filters.showUnreadOnly
+        val count = repository.countLocalAll(hubFilter, tagFilter, query, hideRead)
+        localAllHasMore = localAllOffset + LOCAL_ALL_PAGE_SIZE < count
+        AppLog.i(
+            TAG,
+            "observeLocalAllPage feedId=$feedId offset=$localAllOffset count=$count hasMore=$localAllHasMore " +
+                "hub=$hubFilter tag=$tagFilter query=$query unread=$hideRead"
+        )
+        updateState { it.copy(canLoadMore = localAllHasMore, errorMessage = null) }
+        repository.observeLocalAllPage(
+            limit = LOCAL_ALL_PAGE_SIZE,
+            offset = localAllOffset,
+            hubFilter = hubFilter,
+            tagFilter = tagFilter,
+            query = query,
+            hideRead = hideRead,
+        ).flowOn(Dispatchers.Default).collect { items ->
+            AppLog.d(TAG, "observeLocalAllPage emission feedId=$feedId offset=$localAllOffset items=${items.size}")
+            updateState { state ->
+                val merged = if (localAllOffset == 0) {
+                    items
+                } else {
+                    (state.items + items).distinctBy { it.articleIdentityKey() }
+                }
+                state.copy(items = merged)
+            }
+            // The page stream is long-lived (it stays subscribed until the feed job is cancelled),
+            // so the load-more flag must be released right after the page has been applied. It is
+            // intentionally NOT reset in a finally block of loadMoreLocalAll: the previous page job
+            // can be cancelled asynchronously while the next one already runs, and resetting there
+            // would race with the new page (allowing a duplicate page request).
+            isLoadingNextPage = false
         }
     }
 
@@ -225,12 +270,9 @@ class FeedViewModel(
     }
 
     private fun resetPager(feedId: String) {
-        AppLog.d(TAG, "resetPager feedId=$feedId")
-        pagingSource = FeedPagingSource(repository = repository, feedId = feedId)
-        nextPagingKey = FIRST_APPEND_PAGE
-        pagingFlow = Pager(config = pagingConfig) {
-            FeedPagingSource(repository = repository, feedId = feedId)
-        }.flow.cachedIn(viewModelScope)
+        // Paging 3 was removed: the UI renders a DB-backed Flow and requests pages via
+        // repository.loadNextPage. Kept as a no-op hook so feed switches reset nothing stale.
+        AppLog.d(TAG, "resetPager feedId=$feedId (no-op, paging via repository cursor)")
     }
 
     fun refresh(force: Boolean = true, scrollToTopOnNewItems: Boolean = true) {
@@ -252,15 +294,28 @@ class FeedViewModel(
                     previousTopArticle = previousTopArticle,
                     loadedItems = page.items,
                 )
+                // For "Все загруженные" canLoadMore is driven exclusively by the paged local
+                // archive flow (repository.hasMorePages returns false for it by design); writing
+                // it here would race the flow and could leave pagination disabled.
                 updateState {
-                    it.copy(
-                        canLoadMore = repository.hasMorePages(feedId),
-                        errorMessage = null
-                    )
+                    if (feedId == HabrApiSource.FeedIds.AllCached) {
+                        it.copy(errorMessage = null)
+                    } else {
+                        it.copy(
+                            canLoadMore = repository.hasMorePages(feedId),
+                            errorMessage = null
+                        )
+                    }
                 }
                 AppLog.i(
                     TAG,
-                    "refresh completed feedId=$feedId canLoadMore=${repository.hasMorePages(feedId)}"
+                    "refresh completed feedId=$feedId canLoadMore=${
+                        if (feedId == HabrApiSource.FeedIds.AllCached) {
+                            localAllHasMore
+                        } else {
+                            repository.hasMorePages(feedId)
+                        }
+                    }"
                 )
                 refreshed = true
             }
@@ -313,7 +368,11 @@ class FeedViewModel(
                         ?.toPublicationSection()
                         ?: HabrPublicationSection.Articles,
                     selectedDestination = ReaderDestination.Feed,
-                    canLoadMore = repository.hasMorePages(feedId),
+                    canLoadMore = if (feedId == HabrApiSource.FeedIds.AllCached) {
+                        localAllHasMore
+                    } else {
+                        repository.hasMorePages(feedId)
+                    },
                     errorMessage = null,
                 )
             }
@@ -345,36 +404,37 @@ class FeedViewModel(
     fun loadMoreItems() {
         val feedId = mutableState.value.activeFeedId ?: return
         if (isLoadingNextPage || loadAllPagesJob?.isActive == true) return
+        if (feedId == HabrApiSource.FeedIds.AllCached) {
+            loadMoreLocalAll()
+            return
+        }
         if (!repository.hasMorePages(feedId)) return
         viewModelScope.launch(Dispatchers.Default) {
             isLoadingNextPage = true
             try {
-                AppLog.i(TAG, "loadMore start feedId=$feedId key=$nextPagingKey")
-                val source = pagingSource ?: FeedPagingSource(
-                    repository = repository,
-                    feedId = feedId
-                ).also {
-                    pagingSource = it
+                AppLog.i(TAG, "loadMore start feedId=$feedId")
+                var page = repository.loadNextPage(feedId)
+                var loaded = page?.items.orEmpty()
+                // A page can contribute no items after URL-based dedup or hub filtering while the
+                // cursor still points to more pages. Keep advancing so pagination does not stall
+                // silently at the end of the list.
+                while (page != null && page.items.isEmpty() && repository.hasMorePages(feedId)) {
+                    page = repository.loadNextPage(feedId)
+                    loaded = page?.items.orEmpty()
                 }
-                val key = nextPagingKey ?: return@launch
-                when (val result =
-                    source.load(PagingSourceLoadParamsAppend(key, PAGE_SIZE, false))) {
-                    is PagingSourceLoadResultPage -> {
-                        nextPagingKey = result.nextKey
-                        AppLog.i(
-                            TAG,
-                            "loadMore page feedId=$feedId items=${result.data.size} next=${result.nextKey}"
+                if (page != null) {
+                    AppLog.i(
+                        TAG,
+                        "loadMore page feedId=$feedId items=${loaded.size} canLoadMore=${repository.hasMorePages(feedId)}"
+                    )
+                    updateState {
+                        it.copy(
+                            canLoadMore = repository.hasMorePages(feedId),
+                            errorMessage = null
                         )
-                        updateState {
-                            it.copy(
-                                canLoadMore = result.nextKey != null,
-                                errorMessage = null
-                            )
-                        }
                     }
-
-                    is PagingSourceLoadResultError -> throw result.throwable
-                    is PagingSourceLoadResultInvalid -> updateState { it.copy(canLoadMore = false) }
+                } else {
+                    updateState { it.copy(canLoadMore = false) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -383,6 +443,45 @@ class FeedViewModel(
             } finally {
                 isLoadingNextPage = false
             }
+        }
+    }
+
+    /**
+     * Advances the "Все загруженные" cursor by one page and restarts the observation at the new
+     * offset. The previous collector is cancelled so only one page stream is active at a time.
+     *
+     * [isLoadingNextPage] is released inside [observeLocalAllPageFlow] right after the page has
+     * been applied (never in a finally here): the cancelled previous job can outlive this method
+     * and would otherwise race the flag with the new page stream.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun loadMoreLocalAll() {
+        if (!localAllHasMore || isLoadingNextPage) return
+        val feedId = HabrApiSource.FeedIds.AllCached
+        AppLog.i(TAG, "loadMoreLocalAll offset=$localAllOffset hasMore=$localAllHasMore")
+        isLoadingNextPage = true
+        feedJob?.cancel()
+        feedJob = viewModelScope.launch(Dispatchers.Default) {
+            try {
+                localAllOffset += LOCAL_ALL_PAGE_SIZE
+                observeLocalAllPageFlow(feedId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w(TAG, "loadMoreLocalAll failed offset=$localAllOffset", e)
+                isLoadingNextPage = false
+                updateState { it.copy(errorMessage = e.message ?: "Ошибка загрузки") }
+            }
+        }
+    }
+
+    /**
+     * Restarts paged observation of "Все загруженные" after a filter change (tag/search/unread).
+     * SQL filters are pushed to the DAO, so the page stream already returns only matching rows.
+     */
+    private fun reobserveAllCachedIfActive() {
+        if (mutableState.value.activeFeedId == HabrApiSource.FeedIds.AllCached) {
+            observeFeed(HabrApiSource.FeedIds.AllCached)
         }
     }
 
@@ -491,6 +590,7 @@ class FeedViewModel(
                 isArticleOpen = false,
             )
         }
+        reobserveAllCachedIfActive()
         refreshIfCurrentFeedIsEmpty()
     }
 
@@ -526,6 +626,7 @@ class FeedViewModel(
                 searchQuery = "",
             )
         }
+        reobserveAllCachedIfActive()
     }
 
     fun updateSearchQuery(query: String) {
@@ -536,6 +637,7 @@ class FeedViewModel(
                 isArticleOpen = false,
             )
         }
+        reobserveAllCachedIfActive()
     }
 
     fun clearFilters() {
@@ -550,10 +652,12 @@ class FeedViewModel(
                 isArticleOpen = false,
             )
         }
+        reobserveAllCachedIfActive()
     }
 
     fun setShowUnreadOnly(showUnreadOnly: Boolean) {
         updateState { it.copy(showUnreadOnly = showUnreadOnly, isArticleOpen = false) }
+        reobserveAllCachedIfActive()
     }
 
     fun dismissError() {
@@ -755,7 +859,11 @@ class FeedViewModel(
                     selectedPublicationSection = HabrPublicationSection.Articles,
                     selectedDestination = ReaderDestination.Feed,
                     searchQuery = "",
-                    canLoadMore = repository.hasMorePages(baseFeedId),
+                    canLoadMore = if (baseFeedId == HabrApiSource.FeedIds.AllCached) {
+                        localAllHasMore
+                    } else {
+                        repository.hasMorePages(baseFeedId)
+                    },
                     errorMessage = null,
                 )
             }
@@ -787,20 +895,82 @@ class FeedViewModel(
         val startedAt = Clock.System.now().toEpochMilliseconds()
         mutableState.update { current ->
             val next = transform(current)
-            val visibleItems = computeVisibleItems(next)
-            next.copy(visibleItems = visibleItems)
-                .withFilterChips(visibleItems)
-                .also { updated ->
-                    AppLog.d(
-                        TAG,
-                        "updateState items=${updated.items.size} visible=${updated.visibleItems.size} " +
-                                "hubs=${updated.hubFilters.size} tags=${updated.tagFilters.size} " +
-                                "destination=${updated.selectedDestination} elapsed=${
-                                    Clock.System.now().toEpochMilliseconds() - startedAt
-                                }ms",
-                    )
-                }
+            val key = next.derivedKey()
+            val cached = derivedCache
+            val usedCache = key == derivedCacheKey && cached != null
+            val derived = if (usedCache) cached else computeDerived(next)
+            derivedCacheKey = key
+            derivedCache = derived
+            next.copy(
+                visibleItems = derived.visibleItems,
+                hubFilters = derived.hubFilters,
+                tagFilters = derived.tagFilters,
+            ).also { updated ->
+                AppLog.d(
+                    TAG,
+                    "updateState items=${updated.items.size} visible=${updated.visibleItems.size} " +
+                            "hubs=${updated.hubFilters.size} tags=${updated.tagFilters.size} " +
+                            "derivedCached=$usedCache destination=${updated.selectedDestination} " +
+                            "elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+                )
+            }
         }
+    }
+
+    /**
+     * Derived data for the feed screen. Recomputed only when the inputs change; see [derivedKey].
+     */
+    private data class DerivedFeedData(
+        val visibleItems: List<FeedItem>,
+        val hubFilters: List<FeedFilterChipState>,
+        val tagFilters: List<FeedFilterChipState>,
+    )
+
+    /**
+     * Compact key of every input used by [computeVisibleItems] and [withFilterChips].
+     *
+     * Item lists are immutable snapshots produced by Room flows, so a content change always comes
+     * with a new list reference; [System.identityHashCode] is O(1) and exact for our usage.
+     * Favorites sets/maps are small, so their content hash is cheap and safe.
+     */
+    private fun ReaderUiState.derivedKey(): String = buildString {
+        append(System.identityHashCode(items))
+        append('|')
+        append(System.identityHashCode(bookmarkedItems))
+        append('|')
+        append(System.identityHashCode(feeds))
+        append('|')
+        append(selectedDestination.name)
+        append('|')
+        append(selectedHubId.orEmpty())
+        append('|')
+        append(selectedTagId.orEmpty())
+        append('|')
+        append(searchQuery)
+        append('|')
+        append(showUnreadOnly)
+        append('|')
+        append(feedSortMode.name)
+        append('|')
+        append(activeFeedId.orEmpty())
+        append('|')
+        append(favoriteTagIds.hashCode())
+        append('|')
+        append(favoriteHubIds.hashCode())
+        append('|')
+        append(favoriteTagTitles.hashCode())
+        append('|')
+        append(favoriteHubTitles.hashCode())
+    }
+
+    private fun computeDerived(state: ReaderUiState): DerivedFeedData {
+        val visibleItems = computeVisibleItems(state)
+        val withChips = state.withFilterChips(visibleItems)
+        return DerivedFeedData(
+            visibleItems = visibleItems,
+            hubFilters = withChips.hubFilters,
+            tagFilters = withChips.tagFilters,
+        )
     }
 
     private fun computeVisibleItems(state: ReaderUiState): List<FeedItem> {
@@ -967,12 +1137,6 @@ private fun FeedKind.toPublicationSection(): HabrPublicationSection = when (this
         FeedKind.Posts -> HabrPublicationSection.Posts
         FeedKind.News -> HabrPublicationSection.News
     }
-
-    companion object {
-        private const val PAGE_SIZE = 20
-        private const val PAGE_PREFETCH_DISTANCE = 5
-        private const val FIRST_APPEND_PAGE = 1
-    }
 }
 
 private fun ReaderUiState.hubTitle(id: String): String =
@@ -1063,6 +1227,8 @@ private fun Throwable.toLoadAllPagesMessage(): String = when (this) {
 }
 
 private const val MAX_CONTEXT_FILTER_CHIPS = 16
+// Must stay in sync with TechReaderRepository.LOCAL_ALL_PAGE_SIZE.
+private const val LOCAL_ALL_PAGE_SIZE = 200
 private const val TAG = "FeedViewModel"
 
 private fun FeedSettings.toFeedCardMode(): FeedCardMode =

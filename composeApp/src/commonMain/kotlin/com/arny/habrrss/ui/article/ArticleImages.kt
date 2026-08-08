@@ -40,6 +40,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.compose.SubcomposeAsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 
 // ================= PREVIEWS =================
 
@@ -113,13 +117,67 @@ internal fun FeedThumbnail(
     imageUrl: String?,
     contentDescription: String,
     modifier: Modifier,
+    requestSize: Int = 640,
 ) {
-    ReaderImage(
-        imageUrl = imageUrl,
+    if (imageUrl.isNullOrBlank()) {
+        Box(
+            modifier = modifier
+                .heightIn(min = 100.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    RoundedCornerShape(8.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.Article,
+                contentDescription = null,
+                modifier = Modifier.size(42.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        return
+    }
+
+    val context = LocalPlatformContext.current
+    val model = remember(imageUrl, requestSize) {
+        ImageRequest.Builder(context)
+            .data(imageUrl)
+            .size(requestSize)
+            .crossfade(true)
+            .build()
+    }
+
+    // Deliberately uses SubcomposeAsyncImage slots instead of manual state: the card leaves
+    // composition on scroll and comes back, so manual remember(imageUrl) state would flash
+    // a Loading overlay on every re-entry. Coil resolves memory-cache hits synchronously,
+    // so the loading slot is only visible on the first network fetch.
+    SubcomposeAsyncImage(
+        model = model,
         contentDescription = contentDescription,
-        modifier = modifier,
         contentScale = ContentScale.Crop,
-        showZoom = false,
+        modifier = modifier.clip(RoundedCornerShape(8.dp)),
+        loading = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Image,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+            }
+        },
+        error = {
+            ImageErrorPreview(
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+            )
+        },
     )
 }
 
@@ -172,13 +230,24 @@ private fun ReaderImage(
         return
     }
 
+    // Bound decode size to the largest on-screen article image (~full HD) instead of the
+    // original resolution, and crossfade cache hits so recomposition doesn't flash.
+    val context = LocalPlatformContext.current
+    val model = remember(imageUrl) {
+        ImageRequest.Builder(context)
+            .data(imageUrl)
+            .size(1600)
+            .crossfade(true)
+            .build()
+    }
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
     ) {
         AsyncImage(
-            model = imageUrl,
+            model = model,
             contentDescription = contentDescription,
             modifier = Modifier
                 .fillMaxWidth()

@@ -26,6 +26,58 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun getAllCachedOnce(): List<FeedItemEntity>
 
+    /**
+     * Paged snapshot of the whole local cache ("Все загруженные"). Optional filters are pushed to
+     * SQL so a huge archive can be browsed page by page without mapping every row to domain.
+     */
+    @Query(
+        """
+        SELECT * FROM feed_items
+        WHERE (:hubFilter IS NULL OR hubsJson LIKE '%' || :hubFilter || '%')
+          AND (:tagFilter IS NULL OR tagsJson LIKE '%' || :tagFilter || '%')
+          AND (:query IS NULL OR title LIKE '%' || :query || '%'
+               OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%'
+               OR tagsJson LIKE '%' || :query || '%' OR hubsJson LIKE '%' || :query || '%')
+          AND (:hideRead = 0 OR NOT EXISTS (
+              SELECT 1 FROM article_local_state als WHERE als.articleId = feed_items.id AND als.isRead = 1
+          ))
+        ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    fun getAllCachedPaged(
+        hubFilter: String?,
+        tagFilter: String?,
+        query: String?,
+        hideRead: Boolean,
+        limit: Int,
+        offset: Int,
+    ): Flow<List<FeedItemEntity>>
+
+    /**
+     * Total number of rows matching the same filters as [getAllCachedPaged]; used to decide whether
+     * another page exists.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM feed_items
+        WHERE (:hubFilter IS NULL OR hubsJson LIKE '%' || :hubFilter || '%')
+          AND (:tagFilter IS NULL OR tagsJson LIKE '%' || :tagFilter || '%')
+          AND (:query IS NULL OR title LIKE '%' || :query || '%'
+               OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%'
+               OR tagsJson LIKE '%' || :query || '%' OR hubsJson LIKE '%' || :query || '%')
+          AND (:hideRead = 0 OR NOT EXISTS (
+              SELECT 1 FROM article_local_state als WHERE als.articleId = feed_items.id AND als.isRead = 1
+          ))
+        """
+    )
+    suspend fun countAllCachedPaged(
+        hubFilter: String?,
+        tagFilter: String?,
+        query: String?,
+        hideRead: Boolean,
+    ): Int
+
     @Query("SELECT * FROM feed_items WHERE id = :id")
     suspend fun getById(id: String): FeedItemEntity?
 
