@@ -37,6 +37,7 @@ interface FeedDao {
           AND (:tagFilter IS NULL OR tagsJson LIKE '%' || :tagFilter || '%')
           AND (:query IS NULL OR title LIKE '%' || :query || '%'
                OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%'
+               OR descriptionHtml LIKE '%' || :query || '%'
                OR tagsJson LIKE '%' || :query || '%' OR hubsJson LIKE '%' || :query || '%')
           AND (:hideRead = 0 OR NOT EXISTS (
               SELECT 1 FROM article_local_state als WHERE als.articleId = feed_items.id AND als.isRead = 1
@@ -65,6 +66,7 @@ interface FeedDao {
           AND (:tagFilter IS NULL OR tagsJson LIKE '%' || :tagFilter || '%')
           AND (:query IS NULL OR title LIKE '%' || :query || '%'
                OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%'
+               OR descriptionHtml LIKE '%' || :query || '%'
                OR tagsJson LIKE '%' || :query || '%' OR hubsJson LIKE '%' || :query || '%')
           AND (:hideRead = 0 OR NOT EXISTS (
               SELECT 1 FROM article_local_state als WHERE als.articleId = feed_items.id AND als.isRead = 1

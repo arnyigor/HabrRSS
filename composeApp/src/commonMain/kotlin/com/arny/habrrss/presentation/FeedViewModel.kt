@@ -182,6 +182,7 @@ class FeedViewModel(
                         val selected = state.selectedArticleId
                         state.copy(
                             items = items,
+                            localAllTotalCount = null,
                             selectedArticleBookmarked = items.firstOrNull { it.id == selected }?.isBookmarked
                                 ?: state.selectedArticleBookmarked,
                         )
@@ -208,7 +209,13 @@ class FeedViewModel(
             "observeLocalAllPage feedId=$feedId offset=$localAllOffset count=$count hasMore=$localAllHasMore " +
                 "hub=$hubFilter tag=$tagFilter query=$query unread=$hideRead"
         )
-        updateState { it.copy(canLoadMore = localAllHasMore, errorMessage = null) }
+        updateState {
+            it.copy(
+                canLoadMore = localAllHasMore,
+                localAllTotalCount = count,
+                errorMessage = null,
+            )
+        }
         repository.observeLocalAllPage(
             limit = LOCAL_ALL_PAGE_SIZE,
             offset = localAllOffset,

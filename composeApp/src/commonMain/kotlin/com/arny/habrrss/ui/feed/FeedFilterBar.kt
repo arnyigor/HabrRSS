@@ -242,7 +242,13 @@ private fun buildFilterSummary(
     hubCount: Int,
     tagCount: Int,
 ): String = buildString {
-    append("${state.visibleItems.size} статей")
+    val total = state.localAllTotalCount
+    if (state.activeFeedId == HabrApiSource.FeedIds.AllCached && total != null) {
+        // SQL COUNT covers the whole archive, visibleItems only the pages loaded so far.
+        append("Показано ${state.visibleItems.size} из $total статей")
+    } else {
+        append("${state.visibleItems.size} статей")
+    }
     if (hubCount > 0) append(" · $hubCount хабов")
     if (tagCount > 0) append(" · $tagCount тегов")
     if (state.activeFilterCount > 0) append(" · фильтров: ${state.activeFilterCount}")

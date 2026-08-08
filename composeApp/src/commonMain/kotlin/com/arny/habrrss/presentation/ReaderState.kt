@@ -39,6 +39,12 @@ data class ReaderUiState(
     val articleLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val canLoadMore: Boolean = false,
+    /**
+     * Total number of articles matching the current filters of the "Все загруженные" feed
+     * (SQL COUNT across the whole local archive, not just the loaded pages). Null when the
+     * active feed is not AllCached or the count has not been computed yet.
+     */
+    val localAllTotalCount: Int? = null,
     val loadAllPages: LoadAllPagesUiState = LoadAllPagesUiState.Idle,
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),
