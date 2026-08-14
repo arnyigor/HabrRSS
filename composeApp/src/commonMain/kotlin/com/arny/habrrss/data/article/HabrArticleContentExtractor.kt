@@ -5,6 +5,7 @@ import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
+import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.domain.source.SourceUnavailableException
 import com.fleeksoft.ksoup.Ksoup
 import com.fleeksoft.ksoup.nodes.Element
@@ -38,7 +39,7 @@ class HabrArticleContentExtractor {
                 ?: doc.selectFirst("meta[property=og:image]")?.attr("content")?.trim()?.takeIf { it.isNotBlank() },
             author = null,
             publishedAt = null,
-            tags = emptyList(),
+            tags = doc.extractTags(),
             hubs = doc.extractHubs(),
             blocks = blocks,
             sourceNotice = "Полная статья загружена с Habr.",
@@ -77,6 +78,22 @@ class HabrArticleContentExtractor {
             .distinctBy { it.slug ?: it.id }
     }
 
+    private fun Element.extractTags(): List<Tag> =
+        separatedListLinks("Теги:")
+            .map { title -> Tag(id = title.stableMetadataId(prefix = "tag"), title = title) }
+
+    private fun Element.separatedListLinks(title: String): List<String> {
+        val seen = mutableSetOf<String>()
+        return select(".tm-separated-list")
+            .filter { block -> block.selectFirst(".tm-separated-list__title")?.text()?.trim() == title }
+            .flatMap { block -> block.select("a") }
+            .mapNotNull { link ->
+                val value = link.text().normalizedMetadataTitle().takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                if (seen.add(value.lowercase())) value else null
+            }
+    }
+
     private fun Element.imageUrl(baseUrl: String): String? {
         val value = attr("src")
             .ifBlank { attr("data-src") }
@@ -104,12 +121,14 @@ class HabrArticleContentExtractor {
     }
 
     private fun String.stableMetadataId(prefix: String): String {
-        val normalized = replace('\u00A0', ' ')
-            .trim()
-            .replace(Regex("\\s+"), " ")
-            .lowercase()
+        val normalized = normalizedMetadataTitle().lowercase()
         return "$prefix-${normalized.hashCode()}"
     }
+
+    private fun String.normalizedMetadataTitle(): String =
+        replace('\u00A0', ' ')
+            .trim()
+            .replace(Regex("\\s+"), " ")
 
     private fun ArticleBlock.blockTextLength(): Int {
         return when (this) {

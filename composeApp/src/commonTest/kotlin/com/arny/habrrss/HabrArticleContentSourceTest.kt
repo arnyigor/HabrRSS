@@ -32,6 +32,7 @@ class HabrArticleContentSourceTest {
         assertEquals("Заголовок из API", article.title)
         assertEquals("Полная статья загружена с Habr.", article.sourceNotice)
         assertTrue(article.blocks.any { it is ArticleBlock.Paragraph })
+        assertEquals(listOf("api-tag"), article.tags.map { it.title })
         assertEquals(1, urls.size)
         assertTrue(urls.single().contains("/kek/v2/articles/123"))
     }
@@ -76,6 +77,7 @@ class HabrArticleContentSourceTest {
 
         assertEquals("Android", hub.title)
         assertEquals("android_dev", hub.slug)
+        assertEquals(listOf("kotlin", "compose"), article.tags.map { it.title })
         assertEquals(2, urls.size)
     }
 
@@ -103,6 +105,9 @@ class HabrArticleContentSourceTest {
               "timePublished": "2026-08-03T10:15:00+03:00",
               "titleHtml": "<b>Заголовок из API</b>",
               "leadData": { "textHtml": "<p>Preview</p>" },
+              "tags": [
+                { "titleHtml": "api-tag" }
+              ],
               "textHtml": "<p>$text</p><p>Second paragraph</p>"
             }
             """.trimIndent(),
@@ -157,6 +162,15 @@ class HabrArticleContentSourceTest {
                 </div>
               </div>
             </article>
+            <div class="tm-article-presenter__meta">
+              <div class="tm-separated-list tag-list tm-article-presenter__meta-list">
+                <span class="tm-separated-list__title">Теги:</span>
+                <ul class="tm-separated-list__list">
+                  <li class="tm-separated-list__item"><a href="/ru/search/?q=[kotlin]"><span>kotlin</span></a></li>
+                  <li class="tm-separated-list__item"><a href="/ru/search/?q=[compose]"><span>compose</span></a></li>
+                </ul>
+              </div>
+            </div>
           </body>
         </html>
         """.trimIndent()

@@ -8,6 +8,7 @@ import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.Hub
+import com.arny.habrrss.domain.models.Tag
 import com.arny.habrrss.domain.source.ArticleCommentsSource
 import com.arny.habrrss.domain.source.ArticleContentSource
 import com.arny.habrrss.domain.util.extractHabrArticleNumericId
@@ -47,7 +48,7 @@ class HabrArticleContentSource(
                     dto = api.getArticle(articleId.toLong()),
                     articleUrl = normalizedUrl,
                 )
-                return apiArticle.withHtmlHubSlugsIfNeeded(
+                return apiArticle.withHtmlMetadataIfNeeded(
                     articleId = articleId,
                     normalizedUrl = normalizedUrl,
                 )
@@ -166,11 +167,13 @@ class HabrArticleContentSource(
         )
     }
 
-    private suspend fun ArticleContent.withHtmlHubSlugsIfNeeded(
+    private suspend fun ArticleContent.withHtmlMetadataIfNeeded(
         articleId: String,
         normalizedUrl: String,
     ): ArticleContent {
-        if (hubs.isEmpty() || hubs.all { !it.slug.isNullOrBlank() }) return this
+        val needsHubSlugs = hubs.isNotEmpty() && hubs.any { it.slug.isNullOrBlank() }
+        val needsTags = tags.isEmpty()
+        if (!needsHubSlugs && !needsTags) return this
         val htmlArticle = try {
             extractor.extract(
                 articleId = articleId,
@@ -182,11 +185,15 @@ class HabrArticleContentSource(
         } catch (_: Exception) {
             return this
         }
-        return copy(hubs = hubs.mergeHubSlugs(htmlArticle.hubs))
+        return copy(
+            hubs = hubs.mergeHubSlugs(htmlArticle.hubs),
+            tags = tags.mergeTags(htmlArticle.tags),
+        )
     }
 
     private fun List<Hub>.mergeHubSlugs(hubsWithSlugs: List<Hub>): List<Hub> {
         if (hubsWithSlugs.isEmpty()) return this
+        if (isEmpty()) return hubsWithSlugs
         val byTitle = hubsWithSlugs.associateBy { it.title.normalizedHubTitle() }
         val byId = hubsWithSlugs.associateBy { it.id }
         return map { hub ->
@@ -197,6 +204,12 @@ class HabrArticleContentSource(
                 if (withSlug?.slug.isNullOrBlank()) hub else hub.copy(slug = withSlug.slug)
             }
         }
+    }
+
+    private fun List<Tag>.mergeTags(fallbackTags: List<Tag>): List<Tag> {
+        val merged = if (isEmpty()) fallbackTags else this + fallbackTags
+        val seen = mutableSetOf<String>()
+        return merged.filter { tag -> seen.add(tag.title.normalizedHubTitle()) }
     }
 
     private fun String.normalizedHubTitle(): String =

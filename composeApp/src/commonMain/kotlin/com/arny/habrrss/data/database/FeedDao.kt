@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.Flow
 interface FeedDao {
     // ---------- Server/cache data ----------
 
-    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY CASE WHEN sourceOrder IS NULL THEN 1 ELSE 0 END ASC, sourceOrder ASC, COALESCE(publishedAtEpoch, fetchedAt) DESC")
     fun getByFeed(feedId: String): Flow<List<FeedItemEntity>>
 
-    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY CASE WHEN sourceOrder IS NULL THEN 1 ELSE 0 END ASC, sourceOrder ASC, COALESCE(publishedAtEpoch, fetchedAt) DESC")
     suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity>
 
     @Query("SELECT MAX(fetchedAt) FROM feed_items WHERE feedId = :feedId")

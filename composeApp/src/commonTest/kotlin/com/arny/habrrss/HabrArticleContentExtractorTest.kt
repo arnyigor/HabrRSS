@@ -32,6 +32,22 @@ class HabrArticleContentExtractorTest {
                     </div>
                   </div>
                 </article>
+                <div class="tm-article-presenter__meta">
+                  <div class="tm-separated-list tag-list tm-article-presenter__meta-list">
+                    <span class="tm-separated-list__title">Теги:</span>
+                    <ul class="tm-separated-list__list">
+                      <li class="tm-separated-list__item"><a href="/ru/search/?q=[kotlin]"><span>kotlin</span></a></li>
+                      <li class="tm-separated-list__item"><a href="/ru/search/?q=[compose]"><span>compose</span></a></li>
+                    </ul>
+                  </div>
+                  <div class="tm-separated-list tm-article-presenter__meta-list">
+                    <span class="tm-separated-list__title">Хабы:</span>
+                    <ul class="tm-separated-list__list">
+                      <li class="tm-separated-list__item"><a href="/ru/hubs/android_dev/"><span>Android</span></a></li>
+                      <li class="tm-separated-list__item"><a href="/ru/hubs/android_dev/"><span>Android</span></a></li>
+                    </ul>
+                  </div>
+                </div>
               </body>
             </html>
         """.trimIndent()
@@ -47,6 +63,8 @@ class HabrArticleContentExtractorTest {
         assertEquals("Полная статья загружена с Habr.", article.sourceNotice)
         assertTrue(article.blocks.size >= 4)
         assertTrue(article.blocks.any { it is ArticleBlock.CodeBlock })
+        assertEquals(listOf("kotlin", "compose"), article.tags.map { it.title })
+        assertEquals(listOf("android_dev"), article.hubs.map { it.slug })
         assertFalse(article.blocks.joinToString(" ") { it.textForTest() }.contains("Читать далее"))
     }
 

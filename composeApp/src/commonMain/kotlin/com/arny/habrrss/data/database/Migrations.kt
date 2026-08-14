@@ -147,3 +147,10 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         )
     }
 }
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(connection: SQLiteConnection) {
+        // Nullable server order used by curated snapshot feeds ("Ежедневный Хабр").
+        connection.execSQL("ALTER TABLE feed_items ADD COLUMN sourceOrder INTEGER")
+    }
+}

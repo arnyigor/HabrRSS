@@ -352,6 +352,13 @@ class FeedViewModel(
         }
     }
 
+    private fun ReaderUiState.requestFeedScrollToTop(): ReaderUiState =
+        if (selectedDestination == ReaderDestination.Feed && !isArticleOpen) {
+            copy(feedScrollToTopRequest = feedScrollToTopRequest + 1)
+        } else {
+            this
+        }
+
     fun selectFeed(feedId: String) {
         viewModelScope.launch(Dispatchers.Default) {
             AppLog.i(TAG, "selectFeed feedId=$feedId")
@@ -382,6 +389,7 @@ class FeedViewModel(
                     },
                     errorMessage = null,
                 )
+                    .requestFeedScrollToTop()
             }
             refresh(force = false, scrollToTopOnNewItems = false)
         }
@@ -589,6 +597,7 @@ class FeedViewModel(
         val current = mutableState.value
         updateState {
             val selected = if (tagId == null || it.selectedTagId == tagId) null else tagId
+            val changed = selected != it.selectedTagId
             it.copy(
                 selectedTagId = selected,
                 selectedTagTitle = selected?.let { id -> title ?: current.tagTitle(id) },
@@ -596,6 +605,7 @@ class FeedViewModel(
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
         reobserveAllCachedIfActive()
         refreshIfCurrentFeedIsEmpty()
@@ -622,6 +632,10 @@ class FeedViewModel(
 
     fun selectPublicationSection(section: HabrPublicationSection) {
         updateState {
+            val changed = it.selectedPublicationSection != section ||
+                    it.selectedHubId != null ||
+                    it.selectedTagId != null ||
+                    it.searchQuery.isNotBlank()
             it.copy(
                 selectedPublicationSection = section,
                 selectedDestination = ReaderDestination.Feed,
@@ -632,23 +646,27 @@ class FeedViewModel(
                 selectedTagTitle = null,
                 searchQuery = "",
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
         reobserveAllCachedIfActive()
     }
 
     fun updateSearchQuery(query: String) {
         updateState {
+            val changed = it.searchQuery != query
             it.copy(
                 searchQuery = query,
                 selectedDestination = it.selectedDestination,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
         reobserveAllCachedIfActive()
     }
 
     fun clearFilters() {
         updateState {
+            val changed = it.activeFilterCount > 0
             it.copy(
                 selectedHubId = null,
                 selectedHubTitle = null,
@@ -658,12 +676,17 @@ class FeedViewModel(
                 showUnreadOnly = false,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
         reobserveAllCachedIfActive()
     }
 
     fun setShowUnreadOnly(showUnreadOnly: Boolean) {
-        updateState { it.copy(showUnreadOnly = showUnreadOnly, isArticleOpen = false) }
+        updateState {
+            val changed = it.showUnreadOnly != showUnreadOnly
+            it.copy(showUnreadOnly = showUnreadOnly, isArticleOpen = false)
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
+        }
         reobserveAllCachedIfActive()
     }
 
@@ -685,7 +708,11 @@ class FeedViewModel(
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
-        updateState { it.copy(feedSortMode = mode) }
+        updateState {
+            val changed = it.feedSortMode != mode
+            it.copy(feedSortMode = mode)
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
+        }
     }
 
     fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
@@ -817,6 +844,7 @@ class FeedViewModel(
                         canLoadMore = repository.hasMorePages(feed.id),
                         errorMessage = null,
                     )
+                        .requestFeedScrollToTop()
                 }
                 repository.refreshFeed(feed.id, force = false)
                 updateState {
@@ -873,6 +901,7 @@ class FeedViewModel(
                     },
                     errorMessage = null,
                 )
+                    .requestFeedScrollToTop()
             }
             refresh(scrollToTopOnNewItems = false)
         }
@@ -1000,14 +1029,20 @@ class FeedViewModel(
             .distinctBy { it.articleIdentityKey() }
             .toList()
             .let { filtered ->
-                when (state.feedSortMode) {
-                    FeedSortMode.Newest -> filtered.sortedByDescending {
-                        it.publishedAtEpoch ?: Long.MIN_VALUE
-                    }
+                if (state.activeFeedId == HabrApiSource.FeedIds.Daily) {
+                    // The Daily pack is a curated snapshot: the server order (sourceOrder) must be
+                    // kept instead of re-sorting by publication time or rating.
+                    filtered
+                } else {
+                    when (state.feedSortMode) {
+                        FeedSortMode.Newest -> filtered.sortedByDescending {
+                            it.publishedAtEpoch ?: Long.MIN_VALUE
+                        }
 
-                    FeedSortMode.Rating -> filtered.sortedByDescending {
-                        it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull()
-                            ?: 0
+                        FeedSortMode.Rating -> filtered.sortedByDescending {
+                            it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull()
+                                ?: 0
+                        }
                     }
                 }
             }
@@ -1139,7 +1174,8 @@ private fun FeedKind.toPublicationSection(): HabrPublicationSection = when (this
         FeedKind.Hub,
         FeedKind.Tag,
         FeedKind.Search,
-        FeedKind.Custom -> HabrPublicationSection.Articles
+        FeedKind.Custom,
+        FeedKind.Daily -> HabrPublicationSection.Articles
 
         FeedKind.Posts -> HabrPublicationSection.Posts
         FeedKind.News -> HabrPublicationSection.News

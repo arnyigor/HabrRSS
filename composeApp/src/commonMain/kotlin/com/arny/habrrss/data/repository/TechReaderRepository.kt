@@ -113,6 +113,9 @@ class TechReaderRepository(
         if (feedId == HabrApiSource.FeedIds.AllCached) {
             return refreshAllCachedFeed(startedAt)
         }
+        if (feedId == HabrApiSource.FeedIds.Daily) {
+            return refreshDailyFeed(startedAt, force)
+        }
 
         val cached = getCachedFeed(feedId)
         val previousCursor = feedCursorsFlow.value[feedId] ?: feedDao.getSyncState(feedId)?.toPageCursor()
@@ -202,7 +205,75 @@ class TechReaderRepository(
     }
 
     /**
-     * Load next page of feed items.
+     * "Ежедневный Хабр" is a snapshot feed: a refresh must replace yesterday's curated set with
+     * today's instead of accumulating rows. Local user state (isRead/isBookmarked) lives in
+     * separate tables keyed by article id, so deleting the old `feed_items` rows is safe.
+     *
+     * Note: `cachedArticleJson` is stored in the deleted rows, so cached article bodies of the
+     * Daily pack are dropped on every replace. Acceptable for the MVP: the pack is small and the
+     * full article is re-fetched lazily when opened.
+     */
+    private suspend fun refreshDailyFeed(startedAt: Long, force: Boolean): FeedPage {
+        val feedId = HabrApiSource.FeedIds.Daily
+        val cached = getCachedFeed(feedId)
+        if (!force && cached.isNotEmpty() && isCacheFresh(feedId)) {
+            AppLog.i(
+                TAG,
+                "refreshDailyFeed cache fresh feedId=$feedId cached=${cached.size} elapsed=" +
+                    "${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+            )
+            return FeedPage(
+                items = cached,
+                nextCursor = null,
+                fromCache = true,
+                updatedAt = feedDao.getNewestFetchedAtByFeed(feedId)?.toString(),
+            )
+        }
+
+        val page = try {
+            loadFeedPageWithFallback(feedId, page = null)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: HabrRemoteException.ContractChanged) {
+            return cachedFeedOrThrow(feedId, cached, null, error)
+        } catch (error: HabrRemoteException.RateLimited) {
+            return cachedFeedOrThrow(feedId, cached, null, error)
+        } catch (error: HabrRemoteException.Server) {
+            return cachedFeedOrThrow(feedId, cached, null, error)
+        }
+
+        val items = page.items.applyPersistedLocalState()
+        // forceAll: replace semantics must persist every remote item even when it equals the
+        // currently stored one, otherwise a refresh with unchanged content would delete the
+        // old snapshot rows and leave the feed empty.
+        val entities = page.items.changedRemoteEntities(forceAll = true)
+        feedDao.deleteByFeed(feedId)
+        if (entities.isNotEmpty()) {
+            feedDao.insertAll(entities)
+        }
+        feedCursorsFlow.update { it + (feedId to null) }
+        savePagingState(
+            sourceKey = feedId,
+            nextCursor = null,
+            pagesCount = null,
+            completed = true,
+        )
+        AppLog.i(
+            TAG,
+            "refreshDailyFeed remote feedId=$feedId items=${items.size} entities=${entities.size} " +
+                "elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
+        )
+        return FeedPage(
+            items = items,
+            nextCursor = null,
+            fromCache = false,
+            updatedAt = page.updatedAt,
+            totalPages = null,
+        )
+    }
+
+    /**
+     * Loads next page of feed items.
      * Returns null if there's no more pages (cursor is null).
      */
     suspend fun loadNextPage(feedId: String): FeedPage? {
@@ -744,7 +815,7 @@ class TechReaderRepository(
     private fun SyncStateEntity.toPageCursor(): PageCursor? =
         if (status == "completed") null else PageCursor(nextPage.coerceAtLeast(1).toString())
 
-    private suspend fun List<FeedItem>.changedRemoteEntities(): List<FeedItemEntity> {
+    private suspend fun List<FeedItem>.changedRemoteEntities(forceAll: Boolean = false): List<FeedItemEntity> {
         val now = Clock.System.now().toEpochMilliseconds()
         val currentById = feedDao.getAllCachedOnce().associateBy { it.id }
         return mapNotNull { item ->
@@ -756,7 +827,7 @@ class TechReaderRepository(
             )
             when {
                 current == null -> next.copy(fetchedAt = now)
-                current.hasSameRemoteData(next) -> null
+                !forceAll && current.hasSameRemoteData(next) -> null
                 else -> next.copy(fetchedAt = now)
             }
         }
@@ -765,6 +836,9 @@ class TechReaderRepository(
     private suspend fun loadAndCacheArticle(entity: FeedItemEntity): ArticleContent {
         val cachedArticle = entity.cachedArticleJson?.let { cached ->
             runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
+        }
+        if (cachedArticle != null && cachedArticle.blocks.isNotEmpty()) {
+            return cachedArticle
         }
         val fallback = cachedArticle ?: buildArticleContent(entity)
 
@@ -1116,6 +1190,7 @@ private fun FeedItem.toEntity(
     commentsCount = commentsCount,
     cachedArticleJson = cachedArticleJson,
     fetchedAt = fetchedAt,
+    sourceOrder = sourceOrder,
 )
 
 private fun FeedItemEntity.hasSameRemoteData(other: FeedItemEntity): Boolean =
@@ -1144,6 +1219,7 @@ private fun FeedItemEntity.toDomain(
     commentsCount = commentsCount,
     isRead = localStates[id]?.isRead == true,
     isBookmarked = id in favoriteArticleIds,
+    sourceOrder = sourceOrder,
 )
 
 private fun FeedItem.withLocalState(

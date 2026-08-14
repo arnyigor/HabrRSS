@@ -65,6 +65,7 @@ class HabrApiSourceTest {
         assertEquals("Превью", page.items.first().summary)
         assertEquals("author", page.items.first().author?.displayName)
         assertEquals(listOf("programming"), page.items.first().hubs.map { it.id })
+        assertEquals(listOf("kotlin", "compose"), page.items.first().tags.map { it.title })
         assertEquals("2", page.nextCursor?.value)
         assertNotNull(page.updatedAt)
     }
@@ -168,6 +169,10 @@ class HabrApiSourceTest {
               },
               "author": { "alias": "author" },
               "statistics": { "commentsCount": 7, "score": 5 },
+              "tags": [
+                { "titleHtml": "kotlin" },
+                { "titleHtml": "compose" }
+              ],
               "hubs": [
                 { "id": "hub-1", "alias": "programming", "title": "Программирование" }
               ]

@@ -117,6 +117,7 @@ class HabrApiSource(
     object FeedIds {
         const val All = "habr-all"
         const val AllCached = "local-all"
+        const val Daily = "habr-daily"
         const val HubPrefix = "habr-hub:"
         const val CompanyPrefix = "habr-company:"
         const val AuthorPrefix = "habr-author:"

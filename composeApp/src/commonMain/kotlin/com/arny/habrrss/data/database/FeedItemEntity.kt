@@ -33,4 +33,6 @@ data class FeedItemEntity(
     val commentsCount: Int?,
     val cachedArticleJson: String? = null,
     val fetchedAt: Long,
+    /** Server-defined position inside a curated snapshot feed; null for time-ordered feeds. */
+    val sourceOrder: Int? = null,
 )

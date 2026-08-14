@@ -220,7 +220,11 @@ class FileBackedFeedDao(
     }
 
     private fun List<FeedItemEntity>.byFeed(feedId: String): List<FeedItemEntity> =
-        filter { it.feedId == feedId }.sortedByDescending { it.publishedAtEpoch ?: 0L }
+        filter { it.feedId == feedId }.sortedWith(
+            compareBy<FeedItemEntity> { it.sourceOrder == null }
+                .thenBy { it.sourceOrder ?: Int.MAX_VALUE }
+                .thenByDescending { it.publishedAtEpoch ?: 0L },
+        )
 
     private fun List<FeedItemEntity>.bookmarks(): List<FeedItemEntity> =
         filter { it.id in favoriteArticles }.sortedByDescending { favoriteArticles[it.id]?.createdAt ?: 0L }

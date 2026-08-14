@@ -62,9 +62,7 @@ open class AppContainer(
             primarySource = HabrApiSource(httpClient),
             feedDao = feedDao,
             articleContentSource = articleContentSource,
-            secondarySources = listOf(
-                HabrRssSource(httpClient),
-            ),
+            secondarySources = listOf(HabrRssSource(httpClient)),
             customRssSource = customRssSource,
             preferencesRepository = preferencesRepository,
         )

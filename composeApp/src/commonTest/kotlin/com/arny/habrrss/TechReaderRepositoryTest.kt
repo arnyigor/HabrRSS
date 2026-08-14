@@ -530,16 +530,39 @@ class TechReaderRepositoryTest {
 
         repository.refreshFeed("feed")
         val onlineArticle = repository.getArticle("kotlin")
+        assertEquals(1, contentSource.getArticleCalls)
         contentSource.fail = true
         repository.refreshFeed("feed")
         val offlineArticle = repository.getArticle("kotlin")
 
+        assertEquals(1, contentSource.getArticleCalls)
         assertEquals("Full article from content source.", onlineArticle.sourceNotice)
         assertEquals("Full article from content source.", offlineArticle.sourceNotice)
         assertEquals(
             "Full KMP article body",
             (offlineArticle.blocks.single() as ArticleBlock.Paragraph).inline.plain(),
         )
+    }
+
+    @Test
+    fun dailyRefreshPreservesCachedFullArticleForOfflineOpen() = runTest {
+        val contentSource = MutableFakeArticleContentSource()
+        val source = MutableRemoteFeedSource(listOf(remoteItem(id = "daily", title = "Daily article")))
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+            articleContentSource = contentSource,
+        )
+
+        repository.refreshFeed(HabrApiSource.FeedIds.Daily, force = true)
+        val onlineArticle = repository.getArticle("daily")
+        contentSource.fail = true
+        repository.refreshFeed(HabrApiSource.FeedIds.Daily, force = true)
+        val offlineArticle = repository.getArticle("daily")
+
+        assertEquals(1, contentSource.getArticleCalls)
+        assertEquals(onlineArticle.blocks, offlineArticle.blocks)
+        assertEquals("Full article from content source.", offlineArticle.sourceNotice)
     }
 }
 
@@ -904,8 +927,11 @@ internal class FakeArticleContentSource : ArticleContentSource {
 
 internal class MutableFakeArticleContentSource : ArticleContentSource {
     var fail: Boolean = false
+    var getArticleCalls: Int = 0
+        private set
 
     override suspend fun getArticleByUrl(url: String): ArticleContent {
+        getArticleCalls += 1
         if (fail) error("Network is unavailable")
         return FakeArticleContentSource().getArticleByUrl(url)
     }

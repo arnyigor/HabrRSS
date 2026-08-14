@@ -63,3 +63,4 @@ google-services.json
 *.hprof
 
 /composeApp/schemas/.gitkeep
+/.handoff/

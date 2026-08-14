@@ -20,6 +20,7 @@ enum class FeedKind {
     Tag,
     Search,
     Custom,
+    Daily,
 }
 
 data class FeedItem(
@@ -39,6 +40,11 @@ data class FeedItem(
     val commentsCount: Int?,
     val isRead: Boolean,
     val isBookmarked: Boolean,
+    /**
+     * Server-defined position of the item inside a curated snapshot feed (e.g. "Ежедневный Хабр").
+     * Null for ordinary feeds, whose items are ordered by publication time instead.
+     */
+    val sourceOrder: Int? = null,
 )
 
 data class FeedPage(

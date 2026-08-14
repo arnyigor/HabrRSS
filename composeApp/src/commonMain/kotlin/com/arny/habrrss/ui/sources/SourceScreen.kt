@@ -58,6 +58,7 @@ internal fun SourceScreen(
     var editingId by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
     var hub by remember { mutableStateOf("") }
+    val sectionFeeds = feeds.filter { it.kind != FeedKind.Hub && it.kind != FeedKind.Custom }
     val hubFeeds = feeds.filter { it.kind == FeedKind.Hub || it.kind == FeedKind.Custom }
     var showHint by remember { mutableStateOf(true) }
 
@@ -132,6 +133,50 @@ internal fun SourceScreen(
                                     Text("Отмена")
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (sectionFeeds.isNotEmpty()) {
+            item {
+                Text(
+                    "Разделы",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            items(sectionFeeds, key = { "section-${it.id}" }) { feed ->
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = if (feed.id == activeFeedId) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                    ),
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            feed.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(feed.description, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            feed.url,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        IconButton(onClick = { onFeedSelected(feed.id) }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Открыть",
+                            )
                         }
                     }
                 }
@@ -253,6 +298,14 @@ private fun String.toHubSlug(): String {
  * Подставьте реальные поля FeedDescriptor/FeedKind, если сигнатура отличается.
  */
 private val previewHubFeeds = listOf(
+    FeedDescriptor(
+        id = "habr-all",
+        title = "Новые",
+        description = "Свежие статьи Хабра",
+        url = "https://habr.com/ru/articles/",
+        kind = FeedKind.All,
+        sourceTitle = "Habr API",
+    ),
     FeedDescriptor(
         id = "hub_android_dev",
         title = "Разработка под Android",

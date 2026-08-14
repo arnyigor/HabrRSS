@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,6 +52,8 @@ internal fun ArticleHeader(
     onFavoriteTagToggled: (String) -> Unit,
 ) {
     var pendingHub by remember { mutableStateOf<Hub?>(null) }
+    val visibleHubs = remember(article.hubs) { article.hubs.distinctBy { hub -> hub.metadataKey() } }
+    val visibleTags = remember(article.tags) { article.tags.distinctBy { tag -> tag.title.normalizedMetadataKey() } }
 
     pendingHub?.let { hub ->
         AlertDialog(
@@ -137,47 +140,36 @@ internal fun ArticleHeader(
             Text("RSS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(10.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            article.hubs.forEach { hub ->
-                val hubSlug = hub.slug.toValidHabrHubSlugOrNull()
-                HubArticleChip(
-                    hub = hub,
-                    favorite = hubSlug in addedHubSlugs || favoriteHubIds.contains(hub.id),
-                    onClick = {
-                        if (hubSlug == null) {
-                            onHubSelected(hub.id)
-                        } else if (hubSlug in addedHubSlugs) {
-                            onHubFeedRequested(hubSlug, hub.title)
-                        } else {
-                            pendingHub = hub.copy(slug = hubSlug)
-                        }
-                    },
-                    onFavoriteClick = {
-                        if (hubSlug == null) {
-                            onHubSelected(hub.id)
-                        } else {
-                            onHubFeedRequested(hubSlug, hub.title)
-                        }
-                    },
-                )
+        if (visibleHubs.isNotEmpty()) {
+            ArticleMetadataChipRow {
+                visibleHubs.forEach { hub ->
+                    val hubSlug = hub.slug.toValidHabrHubSlugOrNull()
+                    HubArticleChip(
+                        hub = hub,
+                        favorite = hubSlug in addedHubSlugs || favoriteHubIds.contains(hub.id),
+                        onClick = {
+                            if (hubSlug == null) {
+                                onHubSelected(hub.id)
+                            } else if (hubSlug in addedHubSlugs) {
+                                onHubFeedRequested(hubSlug, hub.title)
+                            } else {
+                                pendingHub = hub.copy(slug = hubSlug)
+                            }
+                        },
+                        onFavoriteClick = {
+                            if (hubSlug == null) {
+                                onHubSelected(hub.id)
+                            } else {
+                                onHubFeedRequested(hubSlug, hub.title)
+                            }
+                        },
+                    )
+                }
             }
         }
-        if (article.tags.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                article.tags.forEach { tag ->
+        if (visibleTags.isNotEmpty()) {
+            ArticleMetadataChipRow {
+                visibleTags.forEach { tag ->
                     TagArticleChip(
                         tag = tag,
                         favorite = favoriteTagIds.contains(tag.id),
@@ -189,6 +181,31 @@ internal fun ArticleHeader(
         }
     }
 }
+
+@Composable
+private fun ArticleMetadataChipRow(
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+private fun Hub.metadataKey(): String =
+    listOf(slug?.toHubSlug(), title.normalizedMetadataKey(), id.normalizedMetadataKey())
+        .firstOrNull { !it.isNullOrBlank() }
+        .orEmpty()
+
+private fun String.normalizedMetadataKey(): String =
+    replace('\u00A0', ' ')
+        .trim()
+        .replace(Regex("\\s+"), " ")
+        .lowercase()
 
 private fun String.toHubSlug(): String {
     val value = trim().replace("&amp;", "&").trimEnd('/')

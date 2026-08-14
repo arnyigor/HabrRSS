@@ -39,12 +39,12 @@ class HabrArticleMapper {
             author = dto.author?.toDomain(),
             publishedAt = dto.timePublished,
             publishedAtEpoch = dto.timePublished?.toEpochMillis(),
-            tags = emptyList(),
+            tags = dto.tags.toDomainTags(),
             hubs = dto.hubs.mapNotNull { hub ->
                 val titleValue = hub.title ?: hub.titleHtml.toPlainText()
                 val slug = hub.alias.toValidHabrHubSlugOrNull()
                 val id = slug ?: hub.id?.takeIf(String::isNotBlank) ?: titleValue.stableMetadataId(prefix = "hub")
-                if (id.isNullOrBlank() || titleValue.isNullOrBlank()) {
+                if (id.isBlank() || titleValue.isBlank()) {
                     null
                 } else {
                     Hub(id = id, title = titleValue, slug = slug)
@@ -71,7 +71,7 @@ class HabrArticleMapper {
             imageUrl = dto.leadData?.imageUrl ?: dto.leadData?.image?.url,
             author = dto.author?.toDomain(),
             publishedAt = dto.timePublished,
-            tags = emptyList(),
+            tags = dto.tags.toDomainTags(),
             hubs = dto.hubs.mapNotNull { hub ->
                 val titleValue = hub.title ?: hub.titleHtml.toPlainText()
                 val slug = hub.alias.toValidHabrHubSlugOrNull()
@@ -89,6 +89,22 @@ class HabrArticleMapper {
                 "Полная статья загружена с Habr."
             },
         )
+    }
+
+    private fun List<com.arny.habrrss.data.remote.habr.dto.HabrTagDto>.toDomainTags(): List<Tag> {
+        val seen = mutableSetOf<String>()
+        return mapNotNull { tag ->
+            val titleValue = (tag.title ?: tag.titleHtml.toPlainText())
+                .normalizedMetadataTitle()
+                .takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            val key = titleValue.lowercase()
+            if (!seen.add(key)) {
+                null
+            } else {
+                Tag(id = titleValue.stableMetadataId(prefix = "tag"), title = titleValue)
+            }
+        }
     }
 
     private fun com.arny.habrrss.data.remote.habr.dto.HabrAuthorDto.toDomain(): Author {
@@ -114,9 +130,14 @@ class HabrArticleMapper {
         if (feedId == "habr-all") this else "$feedId:$this"
 
     private fun String.stableMetadataId(prefix: String): String {
-        val normalized = trim().replace(Regex("\\s+"), " ").lowercase()
+        val normalized = normalizedMetadataTitle().lowercase()
         return "$prefix-${normalized.hashCode()}"
     }
+
+    private fun String.normalizedMetadataTitle(): String =
+        replace('\u00A0', ' ')
+            .trim()
+            .replace(Regex("\\s+"), " ")
 
     private fun String?.toValidHabrHubSlugOrNull(): String? {
         val slug = this?.trim()?.takeIf { it.isNotBlank() } ?: return null

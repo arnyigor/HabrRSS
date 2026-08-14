@@ -1,5 +1,6 @@
 package com.arny.habrrss.ui.article
 
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,20 +57,18 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.ArticleContent
+import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedSettings
-import com.arny.habrrss.ui.components.EmptyState
-
-
-import androidx.compose.ui.tooling.preview.Preview
-import com.arny.habrrss.domain.models.Author
 import com.arny.habrrss.domain.models.Hub
 import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.Tag
+import com.arny.habrrss.ui.components.EmptyState
 import kotlinx.coroutines.launch
 
 // ================= PREVIEW MOCK DATA =================
@@ -94,23 +92,36 @@ private fun createMockArticleContent(): ArticleContent = ArticleContent(
     hubs = listOf(Hub("hub-k8s", "Кубернетис и микросервисы")),
     blocks = listOf(
         ArticleBlock.Heading(level = 2, inline = listOf(InlineNode.Text("Введение"))),
-        ArticleBlock.Paragraph(inline = listOf(
-            InlineNode.Text("В современных условиях требования к отказоустойчивости растут экспоненциально. "),
-            InlineNode.Bold(children = listOf(InlineNode.Text("Резервирование"))),
-            InlineNode.Text(" становится стандартом.")
-        )),
+        ArticleBlock.Paragraph(
+            inline = listOf(
+                InlineNode.Text("В современных условиях требования к отказоустойчивости растут экспоненциально. "),
+                InlineNode.Bold(children = listOf(InlineNode.Text("Резервирование"))),
+                InlineNode.Text(" становится стандартом.")
+            )
+        ),
         ArticleBlock.Image(url = "https://example.com/diagram.png", alt = "Схема взаимодействия"),
-        ArticleBlock.CodeBlock(language = "kotlin", code = """
+        ArticleBlock.CodeBlock(
+            language = "kotlin", code = """
             fun handleRequest(req: Request): Response {
                 return repository.process(req)
             }
-        """.trimIndent()),
-        ArticleBlock.Paragraph(inline = listOf(InlineNode.Link(text = "Ссылка на документацию", url = "https://docs.example.com"))),
-        ArticleBlock.ListBlock(ordered = false, items = listOf(
-            listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Отказоустойчивость")))),
-            listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Горизонтальное масштабирование")))),
-            listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Observability"))))
-        ))
+        """.trimIndent()
+        ),
+        ArticleBlock.Paragraph(
+            inline = listOf(
+                InlineNode.Link(
+                    text = "Ссылка на документацию",
+                    url = "https://docs.example.com"
+                )
+            )
+        ),
+        ArticleBlock.ListBlock(
+            ordered = false, items = listOf(
+                listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Отказоустойчивость")))),
+                listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Горизонтальное масштабирование")))),
+                listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("Observability"))))
+            )
+        )
     ),
     sourceNotice = "Опубликовано на Хабре"
 )
@@ -190,7 +201,6 @@ private fun ArticleScreenFallbackPreview() {
     )
 }
 
-
 @Composable
 internal fun ArticleScreen(
     modifier: Modifier,
@@ -267,15 +277,22 @@ internal fun ArticleScreen(
     val actions = rememberArticleActions()
     val articleListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val showScrollToTop = (articleListState.firstVisibleItemIndex > 0 || articleListState.firstVisibleItemScrollOffset > 300) &&
-        !articleListState.isScrollInProgress
+    val showScrollToTop =
+        (articleListState.firstVisibleItemIndex > 0 || articleListState.firstVisibleItemScrollOffset > 300) &&
+                !articleListState.isScrollInProgress
 
     // In-article text search state
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var currentMatchIndex by remember { mutableStateOf(0) }
-    val searchMatches = remember(article, searchQuery) { findSearchMatches(article.blocks, searchQuery) }
-    val currentMatch = searchMatches.getOrNull(currentMatchIndex.coerceIn(0, searchMatches.lastIndex.coerceAtLeast(0)))
+    val searchMatches =
+        remember(article, searchQuery) { findSearchMatches(article.blocks, searchQuery) }
+    val currentMatch = searchMatches.getOrNull(
+        currentMatchIndex.coerceIn(
+            0,
+            searchMatches.lastIndex.coerceAtLeast(0)
+        )
+    )
 
     fun scrollToBlock(blockIndex: Int) {
         // LazyColumn layout: 0 = header, 1 = toolbar, 2 = source notice, then article blocks
@@ -321,7 +338,13 @@ internal fun ArticleScreen(
                 enter = fadeIn(),
                 exit = fadeOut(),
             ) {
-                FloatingActionButton(onClick = { coroutineScope.launch { articleListState.animateScrollToItem(0) } }) {
+                FloatingActionButton(onClick = {
+                    coroutineScope.launch {
+                        articleListState.animateScrollToItem(
+                            0
+                        )
+                    }
+                }) {
                     Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Наверх")
                 }
             }
@@ -388,7 +411,8 @@ internal fun ArticleScreen(
                             settings = settings,
                             modifier = Modifier.widthIn(max = 860.dp),
                             onLinkClick = ::openArticleLink,
-                            highlightQuery = if (isSearchVisible) searchQuery.trim().takeIf { it.isNotEmpty() } else null,
+                            highlightQuery = if (isSearchVisible) searchQuery.trim()
+                                .takeIf { it.isNotEmpty() } else null,
                             highlightCurrentRange = currentMatch
                                 ?.takeIf { it.blockIndex == index }
                                 ?.ranges

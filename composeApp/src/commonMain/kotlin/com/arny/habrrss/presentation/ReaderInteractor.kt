@@ -1,5 +1,6 @@
 package com.arny.habrrss.presentation
 
+import com.arny.habrrss.data.api.HabrApiSource
 import com.arny.habrrss.data.preferences.DefaultPreferencesRepository
 import com.arny.habrrss.data.preferences.UserPreferencesRepository
 import com.arny.habrrss.data.repository.TechReaderRepository
@@ -127,6 +128,7 @@ class ReaderInteractor(
                     canLoadMore = hasMorePages(feedId),
                     errorMessage = null,
                 )
+                    .requestFeedScrollToTop()
             }
         }
     }
@@ -214,25 +216,31 @@ class ReaderInteractor(
 
     fun selectHub(hubId: String?) {
         updateState {
+            val selected = if (it.selectedHubId == hubId) null else hubId
+            val changed = selected != it.selectedHubId
             it.copy(
-                selectedHubId = if (it.selectedHubId == hubId) null else hubId,
+                selectedHubId = selected,
                 selectedTagId = null,
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
     }
 
     fun selectTag(tagId: String?) {
         updateState {
+            val selected = if (it.selectedTagId == tagId) null else tagId
+            val changed = selected != it.selectedTagId
             it.copy(
-                selectedTagId = if (it.selectedTagId == tagId) null else tagId,
+                selectedTagId = selected,
                 selectedHubId = null,
                 selectedPublicationSection = HabrPublicationSection.Articles,
                 selectedDestination = ReaderDestination.Feed,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
     }
 
@@ -264,6 +272,10 @@ class ReaderInteractor(
 
     fun selectPublicationSection(section: HabrPublicationSection) {
         updateState {
+            val changed = it.selectedPublicationSection != section ||
+                    it.selectedHubId != null ||
+                    it.selectedTagId != null ||
+                    it.searchQuery.isNotBlank()
             it.copy(
                 selectedPublicationSection = section,
                 selectedDestination = ReaderDestination.Feed,
@@ -272,6 +284,7 @@ class ReaderInteractor(
                 selectedTagId = null,
                 searchQuery = "",
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
     }
 
@@ -289,6 +302,7 @@ class ReaderInteractor(
 
     fun clearFilters() {
         updateState {
+            val changed = it.activeFilterCount > 0
             it.copy(
                 selectedHubId = null,
                 selectedTagId = null,
@@ -296,15 +310,18 @@ class ReaderInteractor(
                 showUnreadOnly = false,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
     }
 
     fun setShowUnreadOnly(showUnreadOnly: Boolean) {
         updateState {
+            val changed = it.showUnreadOnly != showUnreadOnly
             it.copy(
                 showUnreadOnly = showUnreadOnly,
                 isArticleOpen = false,
             )
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }
     }
 
@@ -313,7 +330,11 @@ class ReaderInteractor(
     }
 
     fun setFeedSortMode(mode: FeedSortMode) {
-        updateState { it.copy(feedSortMode = mode) }
+        updateState {
+            val changed = it.feedSortMode != mode
+            it.copy(feedSortMode = mode)
+                .let { next -> if (changed) next.requestFeedScrollToTop() else next }
+        }
     }
 
     suspend fun updateSettings(transform: (FeedSettings) -> FeedSettings) {
@@ -386,6 +407,13 @@ class ReaderInteractor(
         }
     }
 
+    private fun ReaderUiState.requestFeedScrollToTop(): ReaderUiState =
+        if (selectedDestination == ReaderDestination.Feed && !isArticleOpen) {
+            copy(feedScrollToTopRequest = feedScrollToTopRequest + 1)
+        } else {
+            this
+        }
+
     private fun computeVisibleItems(state: ReaderUiState): List<FeedItem> {
         val sectionItems = when (state.selectedDestination) {
             ReaderDestination.Bookmarks -> state.items.filter { it.isBookmarked }
@@ -403,10 +431,15 @@ class ReaderInteractor(
             .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
             .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
             .let { filtered ->
-                when (state.feedSortMode) {
-                    FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
-                    FeedSortMode.Rating -> filtered.sortedByDescending {
-                        it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull() ?: 0
+                if (state.activeFeedId == HabrApiSource.FeedIds.Daily) {
+                    // Curated Daily pack keeps the server order; user sort is ignored.
+                    filtered
+                } else {
+                    when (state.feedSortMode) {
+                        FeedSortMode.Newest -> filtered.sortedByDescending { it.publishedAtEpoch ?: 0L }
+                        FeedSortMode.Rating -> filtered.sortedByDescending {
+                            it.rating?.filter { char -> char.isDigit() || char == '-' }?.toIntOrNull() ?: 0
+                        }
                     }
                 }
             }
@@ -438,7 +471,8 @@ class ReaderInteractor(
         FeedKind.Hub,
         FeedKind.Tag,
         FeedKind.Search,
-        FeedKind.Custom -> HabrPublicationSection.Articles
+        FeedKind.Custom,
+        FeedKind.Daily -> HabrPublicationSection.Articles
         FeedKind.Posts -> HabrPublicationSection.Posts
         FeedKind.News -> HabrPublicationSection.News
     }

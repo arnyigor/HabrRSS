@@ -75,7 +75,7 @@ internal fun FeedList(
     val listState = rememberSaveable(listStateKey, saver = LazyListState.Saver) {
         LazyListState()
     }
-    var handledScrollToTopRequest by rememberSaveable(listStateKey) {
+    var handledScrollToTopRequest by rememberSaveable {
         mutableStateOf(scrollToTopRequest)
     }
     LaunchedEffect(scrollToTopRequest, listStateKey) {

@@ -65,11 +65,14 @@ class ReaderInteractorTest {
         presenter.start()
         advanceUntilIdle()
 
+        val initialScrollRequest = presenter.state.value.feedScrollToTopRequest
         presenter.selectHub("android")
         assertEquals(listOf("kotlin"), presenter.state.value.visibleItems.map { it.id })
+        assertEquals(initialScrollRequest + 1, presenter.state.value.feedScrollToTopRequest)
 
         presenter.selectTag("compose")
         assertEquals(listOf("compose"), presenter.state.value.visibleItems.map { it.id })
+        assertEquals(initialScrollRequest + 2, presenter.state.value.feedScrollToTopRequest)
 
         presenter.updateSearchQuery("kotlin")
         assertEquals(ReaderDestination.Search, presenter.state.value.selectedDestination)

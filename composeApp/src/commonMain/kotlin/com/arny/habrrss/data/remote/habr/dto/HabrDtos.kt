@@ -24,11 +24,18 @@ data class HabrArticleDto(
     val postType: String? = null,
     val author: HabrAuthorDto? = null,
     val statistics: HabrStatisticsDto? = null,
+    val tags: List<HabrTagDto> = emptyList(),
     val hubs: List<HabrHubDto> = emptyList(),
     val flows: List<HabrFlowDto> = emptyList(),
     val readingTime: Int? = null,
     val complexity: String? = null,
     val textHtml: String? = null,
+)
+
+@Serializable
+data class HabrTagDto(
+    val title: String? = null,
+    val titleHtml: String? = null,
 )
 
 @Serializable

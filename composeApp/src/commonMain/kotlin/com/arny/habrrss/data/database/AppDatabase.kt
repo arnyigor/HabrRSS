@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         FavoriteHubEntity::class,
         SyncStateEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
