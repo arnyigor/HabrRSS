@@ -1,9 +1,6 @@
 package com.arny.habrrss.ui.article
 
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,10 +27,11 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -277,9 +276,6 @@ internal fun ArticleScreen(
     val actions = rememberArticleActions()
     val articleListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val showScrollToTop =
-        (articleListState.firstVisibleItemIndex > 0 || articleListState.firstVisibleItemScrollOffset > 300) &&
-                !articleListState.isScrollInProgress
 
     // In-article text search state
     var isSearchVisible by remember { mutableStateOf(false) }
@@ -333,21 +329,10 @@ internal fun ArticleScreen(
             )
         },
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = showScrollToTop,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-                FloatingActionButton(onClick = {
-                    coroutineScope.launch {
-                        articleListState.animateScrollToItem(
-                            0
-                        )
-                    }
-                }) {
-                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Наверх")
-                }
-            }
+            ArticleScrollButtons(
+                listState = articleListState,
+                scope = coroutineScope,
+            )
         },
     ) { innerPadding ->
         Column(Modifier.fillMaxSize().padding(innerPadding)) {
@@ -552,6 +537,90 @@ private fun ArticleSearchBar(
 
 /** LazyColumn items before article blocks: 0 = header, 1 = toolbar, 2 = source notice. */
 private const val BLOCKS_OFFSET = 3
+
+// ================= SCROLL BUTTONS =================
+
+@Composable
+private fun ArticleScrollButtons(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+    Surface(
+        modifier = Modifier.padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            CompactScrollButton(
+                onClick = { scope.launch { listState.scrollToItem(0) } },
+                icon = {
+                    Icon(
+                        Icons.Filled.KeyboardDoubleArrowUp,
+                        contentDescription = "В начало статьи",
+                    )
+                },
+            )
+            CompactScrollButton(
+                onClick = {
+                    scope.launch {
+                        listState.animateScrollBy(-viewportHeight * 0.75f)
+                    }
+                },
+                icon = {
+                    Icon(
+                        Icons.Filled.KeyboardArrowUp,
+                        contentDescription = "Прокрутить вверх",
+                    )
+                },
+            )
+            CompactScrollButton(
+                onClick = {
+                    scope.launch {
+                        listState.animateScrollBy(viewportHeight * 0.75f)
+                    }
+                },
+                icon = {
+                    Icon(
+                        Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Прокрутить вниз",
+                    )
+                },
+            )
+            CompactScrollButton(
+                onClick = {
+                    scope.launch {
+                        val totalItems = listState.layoutInfo.totalItemsCount
+                        if (totalItems > 0) listState.scrollToItem(totalItems - 1)
+                    }
+                },
+                icon = {
+                    Icon(
+                        Icons.Filled.KeyboardDoubleArrowDown,
+                        contentDescription = "В конец статьи",
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactScrollButton(
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(36.dp),
+    ) {
+        icon()
+    }
+}
 
 @Composable
 private fun ArticleFallbackView(
