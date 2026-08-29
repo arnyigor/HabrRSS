@@ -138,6 +138,11 @@ private fun CommentsSection(
     }
 }
 
+/** Max visual indent levels for nested replies; deeper threads align at this level. */
+private const val MAX_COMMENT_DEPTH = 5
+/** Fixed horizontal indent per nesting level (dp). */
+private const val COMMENT_INDENT = 16
+
 @Composable
 private fun CommentItem(
     comment: CommentNode,
@@ -145,10 +150,13 @@ private fun CommentItem(
     depth: Int,
     onLinkClick: (String) -> Unit,
 ) {
+    // Indent nested replies by a fixed step, but stop indenting past MAX_COMMENT_DEPTH so that
+    // deeply threaded replies don't compound the parent's padding and shrink to an unreadable width.
+    val indent = if (depth == 0 || depth > MAX_COMMENT_DEPTH) 0.dp else COMMENT_INDENT.dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = if (depth == 0) 0.dp else 12.dp),
+            .padding(start = indent),
         color = if (depth == 0) {
             MaterialTheme.colorScheme.surface
         } else {
@@ -157,58 +165,62 @@ private fun CommentItem(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(8.dp),
     ) {
-        Row(Modifier.fillMaxWidth()) {
-            if (depth > 0) {
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-                )
-            }
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = comment.author?.displayName ?: "Аноним",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+        Column {
+            Row(Modifier.fillMaxWidth()) {
+                if (depth > 0) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                     )
-                    comment.publishedAt?.let { date ->
-                        humanReadableDate(date).takeIf { it.isNotBlank() }?.let { readable ->
-                            Text(
-                                text = " · $readable",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                }
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = comment.author?.displayName ?: "Аноним",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        comment.publishedAt?.let { date ->
+                            humanReadableDate(date).takeIf { it.isNotBlank() }?.let { readable ->
+                                Text(
+                                    text = " · $readable",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
+                    comment.body.forEach { block ->
+                        ArticleBlockView(
+                            block = block,
+                            settings = settings,
+                            modifier = Modifier.widthIn(max = 860.dp),
+                            onLinkClick = onLinkClick,
+                        )
+                    }
                 }
-                comment.body.forEach { block ->
-                    ArticleBlockView(
-                        block = block,
-                        settings = settings,
-                        modifier = Modifier.widthIn(max = 860.dp),
-                        onLinkClick = onLinkClick,
-                    )
-                }
-                if (comment.children.isNotEmpty()) {
-                    Column(
-                        modifier = Modifier.padding(top = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        comment.children.forEach { child ->
-                            CommentItem(
-                                comment = child,
-                                settings = settings,
-                                depth = depth + 1,
-                                onLinkClick = onLinkClick,
-                            )
-                        }
+            }
+            if (comment.children.isNotEmpty()) {
+                // Children live at the Surface level (NOT inside the 12.dp content padding above),
+                // so the parent's inner padding no longer compounds into the child's available width.
+                Column(
+                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    comment.children.forEach { child ->
+                        CommentItem(
+                            comment = child,
+                            settings = settings,
+                            depth = depth + 1,
+                            onLinkClick = onLinkClick,
+                        )
                     }
                 }
             }
