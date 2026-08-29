@@ -26,6 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
@@ -218,6 +220,8 @@ internal fun ArticleScreen(
     onFavoriteTagToggled: (String) -> Unit,
     isBookmarked: Boolean,
     onBookmark: () -> Unit,
+    isFullScreen: Boolean = false,
+    onToggleFullScreen: (() -> Unit)? = null,
     comments: List<CommentNode> = emptyList(),
     relatedArticles: List<FeedItem> = emptyList(),
     isLoadingExtras: Boolean = false,
@@ -259,6 +263,8 @@ internal fun ArticleScreen(
                     onBack = onBack,
                     isBookmarked = isBookmarked,
                     onBookmark = onBookmark,
+                    isFullScreen = isFullScreen,
+                    onToggleFullScreen = onToggleFullScreen,
                 )
             },
         ) { innerPadding ->
@@ -320,14 +326,16 @@ internal fun ArticleScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            ArticleTopBar(
-                article = article,
-                showBack = showBack,
-                onBack = onBack,
-                isBookmarked = isBookmarked,
-                onBookmark = onBookmark,
-                onSearchClick = { isSearchVisible = true },
-            )
+                ArticleTopBar(
+                    article = article,
+                    showBack = showBack,
+                    onBack = onBack,
+                    isBookmarked = isBookmarked,
+                    onBookmark = onBookmark,
+                    onSearchClick = { isSearchVisible = true },
+                    isFullScreen = isFullScreen,
+                    onToggleFullScreen = onToggleFullScreen,
+                )
         },
         floatingActionButton = {
             ArticleScrollButtons(
@@ -431,13 +439,18 @@ private fun ArticleTopBar(
     isBookmarked: Boolean,
     onBookmark: () -> Unit,
     onSearchClick: (() -> Unit)? = null,
+    isFullScreen: Boolean = false,
+    onToggleFullScreen: (() -> Unit)? = null,
 ) {
     TopAppBar(
         navigationIcon = {
-            if (showBack) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                }
+            // Desktop wide layout opens the article in a side pane with showBack=false,
+            // so we expose a Close (X) affordance instead of a Back arrow.
+            IconButton(onClick = onBack) {
+                Icon(
+                    if (showBack) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Close,
+                    contentDescription = if (showBack) "Назад" else "Закрыть",
+                )
             }
         },
         title = {
@@ -452,6 +465,14 @@ private fun ArticleTopBar(
             if (onSearchClick != null) {
                 IconButton(onClick = onSearchClick) {
                     Icon(Icons.Filled.Search, contentDescription = "Поиск в статье")
+                }
+            }
+            if (onToggleFullScreen != null) {
+                IconButton(onClick = onToggleFullScreen) {
+                    Icon(
+                        if (isFullScreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        contentDescription = if (isFullScreen) "Выйти из полноэкранного режима" else "Открыть на весь экран",
+                    )
                 }
             }
             IconButton(onClick = onBookmark) {

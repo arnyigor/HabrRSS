@@ -846,7 +846,11 @@ class FeedViewModel(
                     )
                         .requestFeedScrollToTop()
                 }
-                repository.refreshFeed(feed.id, force = false)
+                // Force refresh so the hub bucket is repopulated with the hub's latest articles
+                // from the Habr API. Without force, a fresh cache (1h TTL) early-returns and the
+                // hub view keeps showing the stale/empty bucket while "Все загруженные" already has
+                // the new articles loaded via other feeds.
+                repository.refreshFeed(feed.id, force = true)
                 updateState {
                     it.copy(
                         canLoadMore = repository.hasMorePages(feed.id),
@@ -1023,7 +1027,13 @@ class FeedViewModel(
         return sectionItems
             .asSequence()
             .filter { item -> !state.showUnreadOnly || !item.isRead }
-            .filter { item -> state.selectedHubId == null || item.hubs.any { it.matchesHubFilter(state.selectedHubId) } }
+            .filter { item ->
+                // When the active feed is already a hub feed, getByFeed(hubFeedId) already scopes
+                // the list to that hub's bucket, so the extra selectedHubId filter is redundant and
+                // can silently drop items whose hub.id/slug doesn't string-match the opened slug.
+                val hubScopedFeed = state.activeFeedId?.startsWith(HabrApiSource.FeedIds.HubPrefix) == true
+                hubScopedFeed || state.selectedHubId == null || item.hubs.any { it.matchesHubFilter(state.selectedHubId) }
+            }
             .filter { item -> state.selectedTagId == null || item.tags.any { it.id == state.selectedTagId } }
             .filter { item -> terms.all { term -> item.matchesSearchTerm(term) } }
             .distinctBy { it.articleIdentityKey() }
@@ -1090,6 +1100,11 @@ class FeedViewModel(
         val tagSourceItems =
             if (selectedDestination == ReaderDestination.Bookmarks || selectedHubId != null || activeFeed?.kind == FeedKind.Hub || activeFeed?.kind == FeedKind.Custom) {
                 visibleItems
+            } else if (selectedDestination == ReaderDestination.Feed) {
+                // "Новые" / "Все загруженные" (kind = All) ранее давали emptyList(), из-за чего
+                // секция тегов скрывалась. Берём теги из всего пула загруженных статей фида,
+                // чтобы фильтр по тегам был доступен для всех статей, а не только внутри хаба.
+                items
             } else {
                 emptyList()
             }

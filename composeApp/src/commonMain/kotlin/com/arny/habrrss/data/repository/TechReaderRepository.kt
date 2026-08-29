@@ -158,11 +158,11 @@ class TechReaderRepository(
                 "fromCache=${page.fromCache} next=${page.nextCursor?.value} elapsed=${Clock.System.now().toEpochMilliseconds() - startedAt}ms",
         )
 
-        val nextCursor = if (feedId.isHabrHubFeedId() && !page.fromCache) {
-            page.nextCursor
-        } else {
-            maxCursor(previousCursor, page.nextCursor)
-        }
+        // Hub feeds accumulate their archive across refreshes. A refresh loads the latest page
+        // (page = null) whose nextCursor is "1"; if the archive was already paged deeper (persisted
+        // in sync_state and rehydrated into previousCursor after a process restart), keep the deeper
+        // cursor so "load all pages" resumes instead of restarting from page 1.
+        val nextCursor = maxCursor(previousCursor, page.nextCursor)
         feedCursorsFlow.update { it + (feedId to nextCursor) }
         savePagingState(
             sourceKey = feedId,
@@ -799,7 +799,9 @@ class TechReaderRepository(
                 mode = "paging",
                 status = if (completed) "completed" else "ready",
                 nextPage = nextCursor?.value?.toIntOrNull() ?: ((current?.nextPage ?: 1).coerceAtLeast(1)),
-                pagesCountSnapshot = pagesCount ?: current?.pagesCountSnapshot,
+                // Keep a previously persisted total-page snapshot: an RSS/latest refresh reports
+                // pagesCount = 0, which must not overwrite the real archive size learned from the API.
+                pagesCountSnapshot = pagesCount?.takeIf { it > 0 } ?: current?.pagesCountSnapshot,
                 pagesProcessed = current?.pagesProcessed ?: 0,
                 receivedCount = current?.receivedCount ?: 0,
                 uniqueCount = current?.uniqueCount ?: 0,

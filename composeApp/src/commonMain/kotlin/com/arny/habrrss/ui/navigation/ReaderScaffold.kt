@@ -18,6 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +75,11 @@ internal fun ReaderApp(
             AppLog.i(TAG, "closeArticle current=$currentRoute")
             viewModel.dispatch(FeedIntent.CloseArticle)
             articleViewModel.close()
+            // Drop the article route so the wide layout collapses the side pane and
+            // returns the feed to full width. On mobile the route is popped via popBackStack;
+            // here we pop directly to avoid re-entering closeArticle recursively.
+            backStackManager.popBackStack()
+            Unit
         }
         fun openArticleRoute(route: Screen.Article) {
             val articleUrl = route.articleUrl
@@ -273,35 +281,24 @@ private fun ReaderWideLayout(
     onErrorDismiss: () -> Unit,
     navHost: @Composable (Modifier, Boolean) -> Unit,
 ) {
+    var isArticleFullScreen by remember { mutableStateOf(true) }
     Row(Modifier.fillMaxSize()) {
         ReaderRail(
             selectedTopLevel = selectedTopLevel,
             onDestinationSelected = onDestinationSelected,
             onScreenSelected = onTopLevelSelected,
         )
-        Column(modifier = Modifier.weight(1f)) {
-            if (!isArticleRoute) {
-                ReaderTopBar(
-                    state = state,
-                    onSearchChanged = onSearchChanged
-                )
-            }
-            ReaderErrorBanner(
-                message = state.errorMessage,
-                onRefresh = onRefresh,
-                onDismiss = onErrorDismiss,
-            )
-            navHost(Modifier.weight(1f), true)
-        }
-        val article = articleState.article
-        val articleError = articleState.errorMessage
-        if (isArticlePaneOpen) {
-            VerticalDivider(Modifier.fillMaxHeight())
+        if (isArticlePaneOpen && isArticleFullScreen) {
+            // Full-screen article mode: hide the feed pane so the article uses the whole width.
+            val article = articleState.article
+            val articleError = articleState.errorMessage
             when {
                 article != null -> ArticleScreen(
                     modifier = Modifier.weight(1f),
                     article = article,
                     showBack = false,
+                    isFullScreen = true,
+                    onToggleFullScreen = { isArticleFullScreen = false },
                     settings = state.settings,
                     favoriteTagIds = state.favoriteTagIds,
                     favoriteHubIds = state.favoriteHubIds,
@@ -333,6 +330,68 @@ private fun ReaderWideLayout(
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator()
+                }
+            }
+        } else {
+            Column(modifier = Modifier.weight(1f)) {
+                if (!isArticleRoute) {
+                    ReaderTopBar(
+                        state = state,
+                        onSearchChanged = onSearchChanged,
+                        onRefresh = onRefresh,
+                        isRefreshing = state.isRefreshing,
+                    )
+                }
+                ReaderErrorBanner(
+                    message = state.errorMessage,
+                    onRefresh = onRefresh,
+                    onDismiss = onErrorDismiss,
+                )
+                navHost(Modifier.weight(1f), true)
+            }
+            if (isArticlePaneOpen) {
+                VerticalDivider(Modifier.fillMaxHeight())
+                val article = articleState.article
+                val articleError = articleState.errorMessage
+                when {
+                    article != null -> ArticleScreen(
+                        modifier = Modifier.weight(1f),
+                        article = article,
+                        showBack = false,
+                        isFullScreen = isArticleFullScreen,
+                        onToggleFullScreen = { isArticleFullScreen = !isArticleFullScreen },
+                        settings = state.settings,
+                        favoriteTagIds = state.favoriteTagIds,
+                        favoriteHubIds = state.favoriteHubIds,
+                        addedHubSlugs = state.addedHubSlugs,
+                        onBack = onCloseArticle,
+                        onHubSelected = { hubId -> onHubSelected(hubId) },
+                        onHubFeedRequested = onHubFeedRequested,
+                        onFavoriteHubToggled = onFavoriteHubToggled,
+                        onTagSelected = onTagSelected,
+                        onFavoriteTagToggled = onFavoriteTagToggled,
+                        isBookmarked = articleState.isBookmarked,
+                        onBookmark = onArticleBookmarkToggled,
+                        comments = articleState.comments,
+                        relatedArticles = articleState.relatedArticles,
+                        isLoadingExtras = articleState.isLoadingExtras,
+                        onRelatedArticleSelected = onRelatedArticleSelected,
+                        onHabrArticleUrlSelected = onHabrArticleUrlSelected,
+                    )
+
+                    articleError != null -> Box(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(articleError)
+                    }
+
+                    else -> Box(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
                 }
             }
         }
@@ -372,7 +431,9 @@ private fun ReaderMobileLayout(
             if (!isArticleRoute) {
                 ReaderTopBar(
                     state = state,
-                    onSearchChanged = onSearchChanged
+                    onSearchChanged = onSearchChanged,
+                    onRefresh = onRefresh,
+                    isRefreshing = state.isRefreshing,
                 )
             }
             ReaderErrorBanner(

@@ -244,11 +244,23 @@ private fun MetadataRow(
 }
 
 internal fun String.withoutHabrMetadata(): String {
-    val cut = listOf("Хабы:", "Метки:", "Теги:")
-        .mapNotNull { label -> indexOf(label).takeIf { it >= 0 } }
-        .minOrNull()
-        ?: return this
+    // Only strip a *trailing* "Хабы:/Метки:/Теги:" footer. Cutting at the first occurrence
+    // destroyed real description text whenever an article mentioned tags/hubs mid-body, which
+    // left feed cards with no description at all. We therefore look at the LAST occurrence and
+    // only treat it as a footer when nothing past it looks like prose.
+    val labels = listOf("Хабы:", "Метки:", "Теги:")
+    val cut = labels.firstNotNullOfOrNull { label ->
+        val idx = lastIndexOf(label)
+        if (idx >= 0 && isTrailingMetadataBlock(this, idx)) idx else null
+    } ?: return this
     return substring(0, cut).trim()
+}
+
+private fun isTrailingMetadataBlock(text: String, labelIndex: Int): Boolean {
+    val tail = text.substring(labelIndex)
+    if (tail.length > 300) return false
+    // A footer is just hub/tag tokens; real prose would contain sentence punctuation.
+    return tail.none { it in ".!?" }
 }
 
 @Composable
