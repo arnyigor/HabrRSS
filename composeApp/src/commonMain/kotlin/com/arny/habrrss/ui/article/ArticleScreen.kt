@@ -370,7 +370,9 @@ internal fun ArticleScreen(
                 LazyColumn(
                     state = articleListState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    // Extra bottom padding so the last section (related articles) clears the
+                    // bottom-end scroll FAB (ArticleScrollButtons) instead of being covered by it.
+                    contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {

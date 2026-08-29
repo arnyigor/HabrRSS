@@ -296,6 +296,7 @@ private fun RelatedArticlesSection(
             modifier = Modifier.padding(horizontal = 4.dp),
         )
         LazyRow(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 4.dp),
         ) {
