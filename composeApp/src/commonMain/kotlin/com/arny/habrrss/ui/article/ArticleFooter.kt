@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,8 +30,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -153,24 +153,27 @@ private fun CommentItem(
     // Indent nested replies by a fixed step, but stop indenting past MAX_COMMENT_DEPTH so that
     // deeply threaded replies don't compound the parent's padding and shrink to an unreadable width.
     val indent = if (depth == 0 || depth > MAX_COMMENT_DEPTH) 0.dp else COMMENT_INDENT.dp
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = indent),
-        color = if (depth == 0) {
-            MaterialTheme.colorScheme.surface
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        },
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shape = RoundedCornerShape(8.dp),
-    ) {
-        Column {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = indent)) {
+        // Parent comment card. Children are rendered as SIBLINGS of this Surface (below), never
+        // inside it — otherwise nested replies would be drawn on top of the parent's background/border.
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = if (depth == 0) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            },
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shape = RoundedCornerShape(8.dp),
+        ) {
             Row(Modifier.fillMaxWidth()) {
                 if (depth > 0) {
+                    // Vertical accent line marking the reply level; fillMaxHeight keeps it spanning
+                    // the full card height regardless of how long the comment body is.
                     Box(
                         modifier = Modifier
                             .width(3.dp)
+                            .fillMaxHeight()
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                     )
                 }
@@ -201,27 +204,27 @@ private fun CommentItem(
                         ArticleBlockView(
                             block = block,
                             settings = settings,
-                            modifier = Modifier.widthIn(max = 860.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             onLinkClick = onLinkClick,
                         )
                     }
                 }
             }
-            if (comment.children.isNotEmpty()) {
-                // Children live at the Surface level (NOT inside the 12.dp content padding above),
-                // so the parent's inner padding no longer compounds into the child's available width.
-                Column(
-                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    comment.children.forEach { child ->
-                        CommentItem(
-                            comment = child,
-                            settings = settings,
-                            depth = depth + 1,
-                            onLinkClick = onLinkClick,
-                        )
-                    }
+        }
+        if (comment.children.isNotEmpty()) {
+            // Children live OUTSIDE the parent Surface so the parent's border/background never
+            // overlaps them, and the parent's 12.dp content padding doesn't compound into width.
+            Column(
+                modifier = Modifier.padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                comment.children.forEach { child ->
+                    CommentItem(
+                        comment = child,
+                        settings = settings,
+                        depth = depth + 1,
+                        onLinkClick = onLinkClick,
+                    )
                 }
             }
         }
@@ -250,17 +253,29 @@ private fun OpenOriginalButton(
 
 @Composable
 private fun ExtrasLoading(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(8.dp),
     ) {
-        CircularProgressIndicator(modifier = Modifier.width(20.dp))
-        Text(
-            text = "Загружаем комментарии…",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.5.dp,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Загружаем комментарии…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -271,18 +286,18 @@ private fun RelatedArticlesSection(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.padding(bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             text = "Похожие статьи",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 4.dp),
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp),
         ) {
             items(
                 articles,
@@ -305,57 +320,58 @@ private fun RelatedArticleCard(
 ) {
     Card(
         onClick = onClick,
-        modifier = modifier.size(220.dp),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.width(200.dp),
+        shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = item.imageUrl,
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+        Column {
+            // Preview image on top with a fixed height so the text block below always has room
+            // and never overlaps the picture.
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.85f)
-                            ),
-                            startY = 60f
-                        )
+                    .fillMaxWidth()
+                    .height(110.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                if (item.imageUrl != null) {
+                    AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
                     )
-            )
-
+                }
+            }
             Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     text = item.title,
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-
+                if (item.summary.isNotBlank()) {
+                    Text(
+                        text = item.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 val date = humanReadableDate(item.publishedAt, item.publishedAtEpoch)
                 val metaText = listOfNotNull(item.author?.displayName, date.ifBlank { null })
                     .joinToString(" • ")
-
                 if (metaText.isNotEmpty()) {
                     Text(
                         text = metaText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.8f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
