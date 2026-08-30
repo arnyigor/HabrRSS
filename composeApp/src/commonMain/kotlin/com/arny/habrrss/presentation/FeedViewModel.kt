@@ -71,6 +71,7 @@ class FeedViewModel(
     private var localStateJob: Job? = null
     private var isLoadingNextPage = false
     private var loadAllPagesJob: Job? = null
+    private var feedIdBeforeGlobalSearch: String? = null
     // Local "Все загруженные" paging cursor. The DB-backed archive is browsed page by page, so
     // opening it does not map the whole cache to domain objects at once.
     private var localAllOffset = 0
@@ -652,12 +653,40 @@ class FeedViewModel(
     }
 
     fun updateSearchQuery(query: String) {
+        val searchGlobally = query.isNotBlank()
+        val changed = mutableState.value.searchQuery != query
+        if (changed) {
+            localAllOffset = 0
+            localAllHasMore = false
+        }
+        val currentFeedId = mutableState.value.activeFeedId
+        val targetFeedId = when {
+            searchGlobally -> {
+                if (feedIdBeforeGlobalSearch == null && currentFeedId != HabrApiSource.FeedIds.AllCached) {
+                    feedIdBeforeGlobalSearch = currentFeedId
+                }
+                HabrApiSource.FeedIds.AllCached
+            }
+            else -> feedIdBeforeGlobalSearch.also { feedIdBeforeGlobalSearch = null } ?: currentFeedId
+        }
+        if (targetFeedId != null && targetFeedId != currentFeedId) {
+            observeFeed(targetFeedId)
+            resetPager(targetFeedId)
+        }
         updateState {
-            val changed = it.searchQuery != query
             it.copy(
                 searchQuery = query,
-                selectedDestination = it.selectedDestination,
+                selectedDestination = if (it.selectedDestination == ReaderDestination.Bookmarks) {
+                    ReaderDestination.Bookmarks
+                } else {
+                    ReaderDestination.Feed
+                },
                 isArticleOpen = false,
+                activeFeedId = targetFeedId ?: it.activeFeedId,
+                selectedHubId = if (searchGlobally) null else it.selectedHubId,
+                selectedHubTitle = if (searchGlobally) null else it.selectedHubTitle,
+                selectedTagId = if (searchGlobally) null else it.selectedTagId,
+                selectedTagTitle = if (searchGlobally) null else it.selectedTagTitle,
             )
                 .let { next -> if (changed) next.requestFeedScrollToTop() else next }
         }

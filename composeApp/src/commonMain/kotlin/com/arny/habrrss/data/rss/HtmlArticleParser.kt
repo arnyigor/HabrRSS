@@ -283,7 +283,10 @@ object HtmlArticleParser {
     private fun normalizeUrl(url: String, baseUrl: String?): String {
         val trimmed = url.trim()
         if (trimmed.isBlank() || baseUrl.isNullOrBlank()) return trimmed
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("mailto:")) {
+        if (trimmed.startsWith("http://")) {
+            return "https://" + trimmed.removePrefix("http://")
+        }
+        if (trimmed.startsWith("https://") || trimmed.startsWith("mailto:")) {
             return trimmed
         }
         if (trimmed.startsWith("//")) return "https:$trimmed"

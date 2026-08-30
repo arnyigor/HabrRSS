@@ -208,8 +208,6 @@ private fun ReaderImage(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
-    var imageState by remember(imageUrl) { mutableStateOf(ImageLoadState.Loading) }
-
     if (imageUrl.isNullOrBlank()) {
         Box(
             modifier = modifier
@@ -246,31 +244,26 @@ private fun ReaderImage(
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
     ) {
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = model,
             contentDescription = contentDescription,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (showZoom && imageState == ImageLoadState.Success) {
+                    if (showZoom) {
                         Modifier.clickable { showFullscreen = true }
                     }
                     else Modifier
                 ),
             contentScale = contentScale,
-            onLoading = { imageState = ImageLoadState.Loading },
-            onSuccess = { imageState = ImageLoadState.Success },
-            onError = { imageState = ImageLoadState.Error },
+            loading = { ImageLoadingPreview(Modifier.fillMaxSize()) },
+            error = {
+                ImageErrorPreview(
+                    contentDescription = contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            },
         )
-
-        when (imageState) {
-            ImageLoadState.Loading -> ImageLoadingPreview(Modifier.matchParentSize())
-            ImageLoadState.Error -> ImageErrorPreview(
-                contentDescription = contentDescription,
-                modifier = Modifier.matchParentSize(),
-            )
-            ImageLoadState.Success -> Unit
-        }
 
         // Fullscreen zoom via Dialog for true fullscreen
         if (showFullscreen) {
@@ -340,7 +333,7 @@ private fun ReaderImage(
 }
 
 @Composable
-private fun ImageLoadingPreview(modifier: Modifier = Modifier) {
+internal fun ImageLoadingPreview(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
@@ -364,7 +357,7 @@ private fun ImageLoadingPreview(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ImageErrorPreview(
+internal fun ImageErrorPreview(
     contentDescription: String,
     modifier: Modifier = Modifier,
 ) {
@@ -394,10 +387,4 @@ private fun ImageErrorPreview(
             textAlign = TextAlign.Center,
         )
     }
-}
-
-private enum class ImageLoadState {
-    Loading,
-    Success,
-    Error,
 }

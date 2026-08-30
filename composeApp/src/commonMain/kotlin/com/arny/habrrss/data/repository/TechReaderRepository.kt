@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
+import com.fleeksoft.ksoup.Ksoup
 
 class TechReaderRepository(
     private val primarySource: FeedSource,
@@ -579,7 +580,7 @@ class TechReaderRepository(
         val tagIds = entity.tags(json)
         val hubIds = entity.hubs(json)
         if (tagIds.isEmpty() && hubIds.isEmpty()) return emptyList()
-        return feedDao.getByFeedOnce(entity.feedId)
+        val candidates = feedDao.getByFeedOnce(entity.feedId)
             .asSequence()
             .filterNot { it.id == entity.id }
             .map { candidate ->
@@ -593,8 +594,32 @@ class TechReaderRepository(
                     .thenByDescending { it.first.publishedAtEpoch ?: it.first.fetchedAt },
             )
             .take(limit)
-            .map { (candidate, _) -> candidate.toDomain(json, localStates, favorites) }
+            .map { (candidate, _) -> candidate }
             .toList()
+
+        return candidates
+            .map { candidate -> relatedCandidateWithImage(candidate) }
+            .map { candidate -> candidate.toDomain(json, localStates, favorites) }
+    }
+
+    private suspend fun relatedCandidateWithImage(candidate: FeedItemEntity): FeedItemEntity {
+        val fromCache = candidate.withRelatedImageFallback(json)
+        if (!fromCache.imageUrl.isNullOrBlank() || articleContentSource == null) return fromCache
+        val fullArticle = try {
+            articleContentSource.getArticleByUrl(candidate.url).normalizedImageUrls()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        } ?: return fromCache
+        val imageUrl = fullArticle.imageUrl?.takeIf { it.isNotBlank() }
+            ?: fullArticle.blocks.firstImageBlockUrl()?.normalizedImageUrl()
+        val updated = fromCache.copy(
+            imageUrl = imageUrl,
+            cachedArticleJson = json.encodeToString(fullArticle),
+        )
+        feedDao.update(updated)
+        return updated
     }
 
     suspend fun getArticleByUrl(url: String): ArticleContent {
@@ -840,7 +865,7 @@ class TechReaderRepository(
             runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull()
         }
         if (cachedArticle != null && cachedArticle.blocks.isNotEmpty()) {
-            return cachedArticle
+            return cachedArticle.normalizedImageUrls()
         }
         val fallback = cachedArticle ?: buildArticleContent(entity)
 
@@ -863,7 +888,7 @@ class TechReaderRepository(
                     author = fallback.author ?: fullArticle.author,
                     hubs = fallback.hubs.mergeHubSlugs(fullArticle.hubs),
                     tags = fallback.tags.ifEmpty { fullArticle.tags },
-                )
+                ).normalizedImageUrls()
                 feedDao.update(entity.copy(cachedArticleJson = json.encodeToString(merged)))
                 merged
             }
@@ -1181,7 +1206,7 @@ private fun FeedItem.toEntity(
     summary = summary,
     descriptionHtml = descriptionHtml,
     url = url,
-    imageUrl = imageUrl,
+    imageUrl = imageUrl?.takeIf { it.isNotBlank() } ?: descriptionHtml.firstImageUrl(url),
     authorName = author?.displayName,
     authorProfileUrl = author?.profileUrl,
     publishedAt = publishedAt,
@@ -1209,7 +1234,7 @@ private fun FeedItemEntity.toDomain(
     summary = summary,
     descriptionHtml = descriptionHtml,
     url = url,
-    imageUrl = imageUrl,
+    imageUrl = imageUrl?.takeIf { it.isNotBlank() } ?: descriptionHtml.firstImageUrl(url) ?: cachedArticleJson.firstArticleImageUrl(json),
     author = authorName?.let {
         Author(id = "author-${it.hashCode()}", displayName = it, profileUrl = authorProfileUrl)
     },
@@ -1223,6 +1248,63 @@ private fun FeedItemEntity.toDomain(
     isBookmarked = id in favoriteArticleIds,
     sourceOrder = sourceOrder,
 )
+
+private fun FeedItemEntity.withRelatedImageFallback(json: Json): FeedItemEntity {
+    if (!imageUrl.isNullOrBlank()) return this
+    val cachedImage = cachedArticleJson.firstArticleImageUrl(json)
+    return if (cachedImage.isNullOrBlank()) this else copy(imageUrl = cachedImage)
+}
+
+private fun ArticleContent.normalizedImageUrls(): ArticleContent = copy(
+    imageUrl = imageUrl?.normalizedImageUrl(),
+    blocks = blocks.normalizedImageUrls(),
+)
+
+private fun List<ArticleBlock>.normalizedImageUrls(): List<ArticleBlock> = map { block ->
+    when (block) {
+        is ArticleBlock.Image -> block.copy(url = block.url.normalizedImageUrl())
+        is ArticleBlock.ListBlock -> block.copy(items = block.items.map { item -> item.normalizedImageUrls() })
+        is ArticleBlock.Quote -> block.copy(blocks = block.blocks.normalizedImageUrls())
+        is ArticleBlock.Spoiler -> block.copy(blocks = block.blocks.normalizedImageUrls())
+        is ArticleBlock.TableBlock -> block.copy(
+            rows = block.rows.map { row ->
+                row.map { cell -> cell.normalizedImageUrls() }
+            },
+        )
+        is ArticleBlock.CodeBlock,
+        is ArticleBlock.Heading,
+        is ArticleBlock.Paragraph,
+        is ArticleBlock.UnknownHtml -> block
+    }
+}
+
+private fun String?.firstArticleImageUrl(json: Json): String? {
+    val cached = this?.takeIf { it.isNotBlank() } ?: return null
+    val article = runCatching { json.decodeFromString<ArticleContent>(cached) }.getOrNull() ?: return null
+    return article.imageUrl?.takeIf { it.isNotBlank() }?.normalizedImageUrl()
+        ?: article.blocks.firstImageBlockUrl()?.normalizedImageUrl()
+}
+
+private fun List<ArticleBlock>.firstImageBlockUrl(): String? {
+    for (block in this) {
+        when (block) {
+            is ArticleBlock.Image -> return block.url.takeIf { it.isNotBlank() }
+            is ArticleBlock.ListBlock -> block.items.firstNotNullOfOrNull { it.firstImageBlockUrl() }?.let { return it }
+            is ArticleBlock.Quote -> block.blocks.firstImageBlockUrl()?.let { return it }
+            is ArticleBlock.Spoiler -> block.blocks.firstImageBlockUrl()?.let { return it }
+            is ArticleBlock.TableBlock -> block.rows
+                .asSequence()
+                .flatMap { it.asSequence() }
+                .firstNotNullOfOrNull { it.firstImageBlockUrl() }
+                ?.let { return it }
+            is ArticleBlock.CodeBlock,
+            is ArticleBlock.Heading,
+            is ArticleBlock.Paragraph,
+            is ArticleBlock.UnknownHtml -> Unit
+        }
+    }
+    return null
+}
 
 private fun FeedItem.withLocalState(
     localStates: Map<String, ArticleLocalStateEntity>,
@@ -1241,6 +1323,44 @@ private fun FeedItem.articleIdentityKey(): String {
         .trimEnd('/')
     return normalizedUrl.ifBlank { title.trim().lowercase() }
 }
+
+private fun String?.firstImageUrl(baseUrl: String): String? {
+    val html = this?.takeIf { it.isNotBlank() } ?: return null
+    val image = Ksoup.parseBodyFragment(html).selectFirst("img") ?: return null
+    val value = image.attr("src")
+        .ifBlank { image.attr("data-src") }
+        .ifBlank { image.attr("data-original") }
+        .ifBlank { image.attr("srcset").firstSrcSetUrl() }
+        .trim()
+    return value.takeIf { it.isNotBlank() }?.toAbsoluteUrl(baseUrl)?.normalizedImageUrl()
+}
+
+private fun String.firstSrcSetUrl(): String =
+    split(",")
+        .firstOrNull()
+        ?.trim()
+        ?.split(Regex("\\s+"))
+        ?.firstOrNull()
+        .orEmpty()
+
+private fun String.toAbsoluteUrl(baseUrl: String): String {
+    return when {
+        startsWith("http://") || startsWith("https://") -> this
+        startsWith("//") -> "https:$this"
+        startsWith("/") -> {
+            val origin = Regex("""^(https?://[^/]+)""").find(baseUrl)?.value.orEmpty()
+            origin + this
+        }
+        else -> this
+    }
+}
+
+private fun String.normalizedImageUrl(): String =
+    when {
+        startsWith("http://") -> "https://" + removePrefix("http://")
+        startsWith("//") -> "https:$this"
+        else -> this
+    }
 
 private fun List<ArticleLocalStateEntity>.byArticleId(): Map<String, ArticleLocalStateEntity> =
     associateBy { it.articleId }

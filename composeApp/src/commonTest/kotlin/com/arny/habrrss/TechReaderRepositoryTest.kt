@@ -468,7 +468,13 @@ class TechReaderRepositoryTest {
         val source = MutableRemoteFeedSource(
             listOf(
                 relatedItem(id = "base", tags = listOf("kotlin", "compose"), hubs = listOf("android"), publishedAtEpoch = 100),
-                relatedItem(id = "strong", tags = listOf("kotlin", "compose"), hubs = emptyList(), publishedAtEpoch = 200),
+                relatedItem(
+                    id = "strong",
+                    tags = listOf("kotlin", "compose"),
+                    hubs = emptyList(),
+                    publishedAtEpoch = 200,
+                    descriptionHtml = """<p><img src="//cdn.example.com/strong.png"></p>""",
+                ),
                 relatedItem(id = "tag-match", tags = listOf("kotlin"), hubs = emptyList(), publishedAtEpoch = 150),
                 relatedItem(id = "hub-match", tags = emptyList(), hubs = listOf("android"), publishedAtEpoch = 300),
                 relatedItem(id = "unrelated", tags = listOf("cpp"), hubs = emptyList(), publishedAtEpoch = 400),
@@ -483,7 +489,31 @@ class TechReaderRepositoryTest {
         val related = repository.getRelatedArticles("base", limit = 3)
 
         assertEquals(listOf("strong", "tag-match", "hub-match"), related.map { it.id })
+        assertEquals("https://cdn.example.com/strong.png", related.first().imageUrl)
         assertTrue(related.none { it.id == "unrelated" })
+    }
+
+    @Test
+    fun getRelatedArticlesFetchesFullArticleImageWhenFeedImageIsMissing() = runTest {
+        val source = MutableRemoteFeedSource(
+            listOf(
+                relatedItem(id = "base", tags = listOf("kotlin"), hubs = emptyList(), publishedAtEpoch = 100),
+                relatedItem(id = "match", tags = listOf("kotlin"), hubs = emptyList(), publishedAtEpoch = 200),
+            ),
+        )
+        val articleSource = MutableFakeArticleContentSource()
+        val repository = TechReaderRepository(
+            primarySource = source,
+            feedDao = InMemoryFeedDao(),
+            articleContentSource = articleSource,
+        )
+
+        repository.refreshFeed("feed")
+        val related = repository.getRelatedArticles("base", limit = 1)
+
+        assertEquals(listOf("match"), related.map { it.id })
+        assertEquals("https://example.com/match.jpg", related.single().imageUrl)
+        assertEquals(1, articleSource.getArticleCalls)
     }
 
     @Test
@@ -801,11 +831,13 @@ private fun relatedItem(
     tags: List<String>,
     hubs: List<String>,
     publishedAtEpoch: Long,
+    descriptionHtml: String? = null,
 ): FeedItem = FeedItem(
     id = id,
     feedId = "feed",
     title = "Article $id",
     summary = "Summary $id",
+    descriptionHtml = descriptionHtml,
     url = "https://example.com/$id",
     imageUrl = null,
     author = Author("author", "Author", null),

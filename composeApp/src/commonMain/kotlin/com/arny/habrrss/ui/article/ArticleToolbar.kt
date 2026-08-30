@@ -3,6 +3,7 @@ package com.arny.habrrss.ui.article
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -32,6 +33,7 @@ internal fun ArticleToolbar(
     article: ArticleContent,
     isBookmarked: Boolean,
     onBookmark: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val actions = rememberArticleActions()
     val validUrl = article.url.normalizedExternalUrl()
@@ -71,7 +73,7 @@ internal fun ArticleToolbar(
     }
 
     Column(
-        modifier = Modifier.widthIn(max = 860.dp),
+        modifier = modifier.widthIn(max = 860.dp).fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(

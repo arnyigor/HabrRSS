@@ -50,6 +50,7 @@ internal fun ArticleHeader(
     onFavoriteHubToggled: (String) -> Unit,
     onTagSelected: (String) -> Unit,
     onFavoriteTagToggled: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var pendingHub by remember { mutableStateOf<Hub?>(null) }
     val visibleHubs = remember(article.hubs) { article.hubs.distinctBy { hub -> hub.metadataKey() } }
@@ -88,7 +89,7 @@ internal fun ArticleHeader(
         )
     }
 
-    Column(Modifier.widthIn(max = 860.dp)) {
+    Column(modifier.widthIn(max = 860.dp).fillMaxWidth()) {
         if (showBack) {
             TextButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)

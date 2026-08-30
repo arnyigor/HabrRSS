@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -281,6 +284,16 @@ internal fun ArticleScreen(
     }
 
     val actions = rememberArticleActions()
+    val validUrl = article.url.normalizedExternalUrl()
+    val flatComments = remember(comments) { flattenComments(comments) }
+    val articleContentModifier = Modifier.widthIn(max = 860.dp).fillMaxWidth()
+
+    // Item index of the "Комментарии" section in the article LazyColumn. The scroll FAB jumps
+    // straight to the start of the comments (the related articles sit just above them).
+    val commentsItemIndex = if (comments.isNotEmpty()) {
+        BLOCKS_OFFSET + article.blocks.size + if (relatedArticles.isNotEmpty()) 1 else 0
+    } else null
+
     val articleListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -341,6 +354,7 @@ internal fun ArticleScreen(
             ArticleScrollButtons(
                 listState = articleListState,
                 scope = coroutineScope,
+                commentsIndex = commentsItemIndex,
             )
         },
     ) { innerPadding ->
@@ -389,6 +403,7 @@ internal fun ArticleScreen(
                             onFavoriteHubToggled = onFavoriteHubToggled,
                             onTagSelected = onTagSelected,
                             onFavoriteTagToggled = onFavoriteTagToggled,
+                            modifier = articleContentModifier,
                         )
                     }
                     item {
@@ -396,6 +411,7 @@ internal fun ArticleScreen(
                             article = article,
                             isBookmarked = isBookmarked,
                             onBookmark = onBookmark,
+                            modifier = articleContentModifier,
                         )
                     }
                     item {
@@ -405,7 +421,7 @@ internal fun ArticleScreen(
                         ArticleBlockView(
                             block = block,
                             settings = settings,
-                            modifier = Modifier.widthIn(max = 860.dp),
+                            modifier = articleContentModifier,
                             onLinkClick = ::openArticleLink,
                             highlightQuery = if (isSearchVisible) searchQuery.trim()
                                 .takeIf { it.isNotEmpty() } else null,
@@ -415,16 +431,52 @@ internal fun ArticleScreen(
                                 ?.firstOrNull(),
                         )
                     }
-                    item {
-                        ArticleFooterSections(
-                            article = article,
-                            comments = comments,
-                            relatedArticles = relatedArticles,
-                            isLoadingExtras = isLoadingExtras,
-                            onRelatedArticleSelected = onRelatedArticleSelected,
-                            onHabrArticleUrlSelected = onHabrArticleUrlSelected,
-                            modifier = Modifier.widthIn(max = 860.dp),
-                        )
+                    // Related articles are rendered ABOVE the comments (user request): the carousel
+                    // sits right after the article body, comments follow below it.
+                    if (relatedArticles.isNotEmpty()) {
+                        item {
+                            HorizontalDivider()
+                            RelatedArticlesSection(
+                                articles = relatedArticles,
+                                onArticleSelected = onRelatedArticleSelected,
+                                modifier = articleContentModifier,
+                            )
+                        }
+                    }
+                    if (comments.isNotEmpty()) {
+                        item {
+                            HorizontalDivider()
+                            CommentsHeader(
+                                comments = comments,
+                                openOriginal = { validUrl?.let(actions::openUrl) },
+                                showOpenButton = validUrl != null,
+                                modifier = articleContentModifier,
+                            )
+                        }
+                        items(
+                            items = flatComments,
+                            key = { it.node.id },
+                            contentType = { "comment" },
+                        ) { (node, depth) ->
+                            CommentItem(
+                                comment = node,
+                                settings = settings,
+                                depth = depth,
+                                onLinkClick = ::openArticleLink,
+                                modifier = articleContentModifier,
+                            )
+                        }
+                    }
+                    if (comments.isEmpty()) {
+                        item {
+                            ArticleFooterTail(
+                                isLoadingExtras = isLoadingExtras,
+                                hasComments = false,
+                                showOpenButton = validUrl != null,
+                                openOriginal = { validUrl?.let(actions::openUrl) },
+                                modifier = articleContentModifier,
+                            )
+                        }
                     }
                 }
             }
@@ -568,6 +620,7 @@ private const val BLOCKS_OFFSET = 3
 private fun ArticleScrollButtons(
     listState: androidx.compose.foundation.lazy.LazyListState,
     scope: kotlinx.coroutines.CoroutineScope,
+    commentsIndex: Int?,
 ) {
     val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
     Surface(
@@ -616,6 +669,16 @@ private fun ArticleScrollButtons(
                 },
             )
             CompactScrollButton(
+                enabled = commentsIndex != null,
+                onClick = { commentsIndex?.let { scope.launch { listState.scrollToItem(it) } } },
+                icon = {
+                    Icon(
+                        Icons.Filled.ChatBubble,
+                        contentDescription = "К комментариям",
+                    )
+                },
+            )
+            CompactScrollButton(
                 onClick = {
                     scope.launch {
                         val totalItems = listState.layoutInfo.totalItemsCount
@@ -637,9 +700,11 @@ private fun ArticleScrollButtons(
 private fun CompactScrollButton(
     onClick: () -> Unit,
     icon: @Composable () -> Unit,
+    enabled: Boolean = true,
 ) {
     IconButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.size(36.dp),
     ) {
         icon()
