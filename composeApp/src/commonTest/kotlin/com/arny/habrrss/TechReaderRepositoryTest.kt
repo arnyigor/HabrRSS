@@ -244,10 +244,18 @@ class TechReaderRepositoryTest {
         assertEquals("API duplicate", cached.first { it.id == "$feedId:habr-1066094" }.title)
         assertEquals(1, primarySource.getItemsCalls)
 
+        // Pagination persistence: a force refresh loads only the RSS latest page and must keep the
+        // deeper archive cursor advanced by the first prefetch, so the archive is not restarted from
+        // page 1 and already cached pages survive. The follow-up prefetch is therefore a no-op.
         repository.refreshFeed(feedId, force = true)
         repository.prefetchHabrHubArchive(feedId)
 
-        assertEquals(2, primarySource.getItemsCalls)
+        assertEquals(1, primarySource.getItemsCalls)
+        assertEquals(1, repository.loadAllPagesProgress(feedId).pagesProcessed)
+        assertEquals(
+            listOf("$feedId:habr-1066224", "$feedId:habr-1066094", "$feedId:habr-1000000"),
+            repository.getCachedFeed(feedId).map { it.id },
+        )
     }
 
     @Test

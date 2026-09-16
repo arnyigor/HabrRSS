@@ -4,8 +4,10 @@ import com.arny.habrrss.data.database.InMemoryFeedDao
 import com.arny.habrrss.data.repository.TechReaderRepository
 import com.arny.habrrss.domain.models.ArticleContent
 import com.arny.habrrss.domain.models.Author
+import com.arny.habrrss.domain.models.ArticleBlock
 import com.arny.habrrss.domain.models.CommentNode
 import com.arny.habrrss.domain.models.FeedDescriptor
+import com.arny.habrrss.domain.models.InlineNode
 import com.arny.habrrss.domain.models.FeedItem
 import com.arny.habrrss.domain.models.FeedKind
 import com.arny.habrrss.domain.models.FeedPage
@@ -20,12 +22,15 @@ import com.arny.habrrss.domain.usecases.OpenArticleUseCase
 import com.arny.habrrss.domain.usecases.RefreshFeedUseCase
 import com.arny.habrrss.domain.usecases.ToggleBookmarkUseCase
 import com.arny.habrrss.presentation.ReaderInteractor
+import com.arny.habrrss.ui.article.FlatComment
+import com.arny.habrrss.ui.article.flattenComments
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTime
 
@@ -152,6 +157,31 @@ class PerformanceRegressionTest {
         assertWithinGuardrail("open article", openElapsed, OPEN_ARTICLE_BUDGET)
     }
 
+    @Test
+    fun flattenCommentsPreservesAllNodesAndDepthOnLargeDeepThread() {
+        // Reproduces the structure that froze the UI: a 2k+ comment thread with deep nesting.
+        // The fix flattens the tree so ArticleScreen can virtualize it via LazyColumn items();
+        // this guards that flattening is O(N), lossless, and keeps correct depths.
+        val nodeCount = 2474
+        val maxDepth = 32
+        val tree = buildCommentTree(nodeCount, maxDepth)
+        assertEquals(nodeCount, countNodes(tree))
+
+        val flat = flattenComments(tree)
+        assertEquals(nodeCount, flat.size)
+        assertEquals(nodeCount, flat.map { it.node.id }.toSet().size) // no duplicates / losses
+        assertEquals(maxDepth, flat.maxOf { it.depth })
+
+        // flattenComments walks depth-first, so list position != depth; depth is validated per-node below.
+        for (fc in flat) {
+            val k = fc.node.id.removePrefix("c").toInt()
+            assertEquals(k % (maxDepth + 1), fc.depth, "depth mismatch for ${fc.node.id}")
+        }
+
+        val elapsed = measureTime { flattenComments(tree) }
+        assertWithinGuardrail("flatten $nodeCount comments", elapsed, FLATTEN_BUDGET)
+    }
+
     private fun createPresenter(source: PagedCountingFeedSource): ReaderInteractor {
         val repository = TechReaderRepository(
             primarySource = source,
@@ -243,3 +273,33 @@ private const val LARGE_FEED_SIZE = 10_000
 private val LARGE_REFRESH_BUDGET = 10.seconds
 private val LARGE_UNCHANGED_REFRESH_BUDGET = 10.seconds
 private val OPEN_ARTICLE_BUDGET = 5.seconds
+private val FLATTEN_BUDGET = 200.milliseconds
+
+private fun buildCommentTree(nodeCount: Int, maxDepth: Int): List<CommentNode> {
+    val chainLen = maxDepth + 1
+    val all = Array(nodeCount) { i ->
+        CommentNode(
+            id = "c$i",
+            author = Author("a", "A", null),
+            publishedAt = "2026-08-03",
+            body = listOf(ArticleBlock.Paragraph(inline = listOf(InlineNode.Text("c$i")))),
+            children = emptyList(),
+        )
+    }
+    val roots = mutableListOf<CommentNode>()
+    var i = 0
+    while (i < nodeCount) {
+        val chainSize = minOf(chainLen, nodeCount - i)
+        val chain = (0 until chainSize).map { all[i + it] }.toMutableList()
+        for (k in chain.lastIndex downTo 0) {
+            val child = if (k < chain.lastIndex) listOf(chain[k + 1]) else emptyList()
+            chain[k] = chain[k].copy(children = child)
+        }
+        roots += chain.first()
+        i += chainSize
+    }
+    return roots
+}
+
+private fun countNodes(nodes: List<CommentNode>): Int =
+    nodes.sumOf { 1 + countNodes(it.children) }
