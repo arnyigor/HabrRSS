@@ -64,3 +64,8 @@ google-services.json
 
 /composeApp/schemas/.gitkeep
 /.handoff/
+
+# Local UI-test artifacts (device screenshots / uiautomator dumps)
+/shot_*.png
+/screenshot*.png
+/ui_dump.xml
