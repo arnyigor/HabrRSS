@@ -151,8 +151,8 @@ android {
         applicationId = "com.arny.habrrss"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 7
-        versionName = "1.0.6"
+        versionCode = 8
+        versionName = "1.0.7"
     }
     packaging {
         resources {
@@ -301,7 +301,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "com.arny.habrrss"
-            packageVersion = "1.0.6"
+            packageVersion = "1.0.7"
         }
     }
 }

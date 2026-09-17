@@ -44,6 +44,15 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun getById(id: String): FeedItemEntity? =
         feedDao.getById(id)
 
+    override suspend fun getByIds(ids: List<String>): List<FeedItemEntity> =
+        feedDao.getByIds(ids)
+
+    override suspend fun getExistingIds(ids: List<String>): List<String> =
+        feedDao.getExistingIds(ids)
+
+    override suspend fun hasId(id: String): String? =
+        feedDao.hasId(id)
+
     override fun observeById(id: String): Flow<FeedItemEntity?> =
         feedDao.observeById(id)
 

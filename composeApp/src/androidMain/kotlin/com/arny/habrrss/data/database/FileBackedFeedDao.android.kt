@@ -63,6 +63,21 @@ class FileBackedFeedDao(
     override suspend fun getById(id: String): FeedItemEntity? =
         items.firstOrNull { it.id == id }
 
+    override suspend fun getByIds(ids: List<String>): List<FeedItemEntity> {
+        if (ids.isEmpty()) return emptyList()
+        val wanted = ids.toHashSet()
+        return synchronized(items) { items.filter { it.id in wanted } }
+    }
+
+    override suspend fun getExistingIds(ids: List<String>): List<String> {
+        if (ids.isEmpty()) return emptyList()
+        val wanted = ids.toHashSet()
+        return synchronized(items) { items.asSequence().map { it.id }.filter { it in wanted }.toList() }
+    }
+
+    override suspend fun hasId(id: String): String? =
+        if (items.any { it.id == id }) id else null
+
     override fun observeById(id: String): Flow<FeedItemEntity?> =
         version.map { items.firstOrNull { item -> item.id == id } }
 

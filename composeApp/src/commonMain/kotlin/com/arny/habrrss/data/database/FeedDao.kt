@@ -83,6 +83,15 @@ interface FeedDao {
     @Query("SELECT * FROM feed_items WHERE id = :id")
     suspend fun getById(id: String): FeedItemEntity?
 
+    @Query("SELECT * FROM feed_items WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<String>): List<FeedItemEntity>
+
+    @Query("SELECT id FROM feed_items WHERE id IN (:ids)")
+    suspend fun getExistingIds(ids: List<String>): List<String>
+
+    @Query("SELECT id FROM feed_items WHERE id = :id")
+    suspend fun hasId(id: String): String?
+
     @Query("SELECT * FROM feed_items WHERE id = :id")
     fun observeById(id: String): Flow<FeedItemEntity?>
 

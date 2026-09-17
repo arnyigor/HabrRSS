@@ -844,7 +844,11 @@ class TechReaderRepository(
 
     private suspend fun List<FeedItem>.changedRemoteEntities(forceAll: Boolean = false): List<FeedItemEntity> {
         val now = Clock.System.now().toEpochMilliseconds()
-        val currentById = feedDao.getAllCachedOnce().associateBy { it.id }
+        // Restrict the existing-rows scan to just the ids present in this page; loading the whole
+        // feed_items table (including cachedArticleJson TEXT) on every page request caused an OOM
+        // crash on large hub archives after 2-3 pages.
+        val pageIds = map { it.id }
+        val currentById = feedDao.getByIds(pageIds).associateBy { it.id }
         return mapNotNull { item ->
             val current = currentById[item.id]
             val next = item.toEntity(
