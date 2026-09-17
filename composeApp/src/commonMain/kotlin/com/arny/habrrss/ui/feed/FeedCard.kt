@@ -82,6 +82,10 @@ internal fun FeedCard(
                     fontWeight = if (item.isRead) FontWeight.SemiBold else FontWeight.Bold,
                 )
 
+                // Hub/tag labels are already shown as chips below; strip the duplicated
+                // "Хабы: ... Метки: ..." text that Habr embeds inside the summary.
+                val summaryText = item.summary.withoutHabrMetadata()
+
                 // Magazine mode: large image below title
                 if (mode == FeedCardMode.Magazine && !item.imageUrl.isNullOrBlank()) {
                     Spacer(Modifier.height(12.dp))
@@ -95,40 +99,30 @@ internal fun FeedCard(
                     )
                 }
 
+                // Comfortable mode: visual cover preview banner below title, then text
+                if (mode == FeedCardMode.Comfortable && !item.imageUrl.isNullOrBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    FeedThumbnail(
+                        imageUrl = item.imageUrl,
+                        contentDescription = "Обложка",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp),
+                        requestSize = 720,
+                    )
+                }
+
                 Spacer(Modifier.height(10.dp))
                 FeedMetaLine(item)
 
-                // Hub/tag labels are already shown as chips below; strip the duplicated
-                // "Хабы: ... Метки: ..." text that Habr embeds inside the summary.
-                val summaryText = item.summary.withoutHabrMetadata()
-
-                // Comfortable mode: small image on the right
-                if (mode == FeedCardMode.Comfortable && !item.imageUrl.isNullOrBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = summaryText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f)
-                        )
-                        FeedThumbnail(
-                            imageUrl = item.imageUrl,
-                            contentDescription = "Обложка",
-                            modifier = Modifier
-                                .size(80.dp),
-                            requestSize = 256,
-                        )
-                    }
-                } else if (mode != FeedCardMode.CompactText && summaryText.isNotBlank()) {
-                    Spacer(Modifier.height(10.dp))
+                if (mode != FeedCardMode.CompactText && summaryText.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = summaryText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (mode == FeedCardMode.Comfortable) 4 else Int.MAX_VALUE,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 

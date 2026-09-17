@@ -120,33 +120,33 @@ internal fun ReaderTopBar(
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
             if (showSearch) {
-                OutlinedTextField(
-                    value = state.searchQuery,
-                    onValueChange = onSearchChanged,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    placeholder = { Text("Поиск...") },
-                    trailingIcon = {
-                        if (state.searchQuery.isNotBlank()) {
-                            IconButton(onClick = { onSearchChanged("") }) {
-                                Icon(Icons.Filled.Close, contentDescription = null)
-                            }
-                        }
-                    },
-                )
-                // Desktop has no pull-to-refresh gesture, so the refresh action lives in the top bar.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.End,
+                        .padding(start = 16.dp, end = 8.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onRefresh, enabled = !isRefreshing) {
-                        if (isRefreshing) {
+                    OutlinedTextField(
+                        value = state.searchQuery,
+                        onValueChange = onSearchChanged,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        placeholder = { Text("Поиск...") },
+                        trailingIcon = {
+                            if (state.searchQuery.isNotBlank()) {
+                                IconButton(onClick = { onSearchChanged("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = null)
+                                }
+                            }
+                        },
+                    )
+                    IconButton(
+                        onClick = onRefresh,
+                        enabled = !isRefreshing && !state.isRefreshing,
+                        modifier = Modifier.padding(start = 4.dp),
+                    ) {
+                        if (isRefreshing || state.isRefreshing) {
                             CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else {
                             Icon(Icons.Filled.Refresh, contentDescription = "Обновить ленту")
