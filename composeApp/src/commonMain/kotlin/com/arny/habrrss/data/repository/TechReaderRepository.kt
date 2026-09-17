@@ -39,6 +39,7 @@ import kotlin.time.Clock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -471,15 +472,28 @@ class TechReaderRepository(
     fun hasMorePages(feedId: String): Boolean =
         feedId != HabrApiSource.FeedIds.AllCached && feedCursorsFlow.value[feedId] != null
 
-    fun observeFeed(feedId: String): Flow<List<FeedItem>> = combine(
-        if (feedId == HabrApiSource.FeedIds.AllCached) feedDao.getAllCached() else feedDao.getByFeed(feedId),
-        feedDao.getArticleLocalStates(),
-        feedDao.getFavoriteArticles(),
-    ) { entities, localStates, favorites ->
-        entities
-            .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
-            .distinctBy { it.articleIdentityKey() }
-    }.distinctUntilChanged()
+    fun observeFeed(feedId: String): Flow<List<FeedItem>> {
+        val entitiesFlow = if (feedId == HabrApiSource.FeedIds.AllCached) {
+            feedDao.getAllCached()
+        } else {
+            feedDao.getByFeed(feedId)
+        }
+        return combine(
+            entitiesFlow,
+            feedDao.getArticleLocalStates(),
+            feedDao.getFavoriteArticles(),
+        ) { entities, localStates, favorites -> Triple(entities, localStates, favorites) }
+            // During an archive import the DAO re-emits on every inserted page. Collapse that burst
+            // so the expensive domain mapping (and the UI state rebuild it feeds) runs on the
+            // latest snapshot instead of once per page.
+            .conflate()
+            .map { (entities, localStates, favorites) ->
+                entities
+                    .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+                    .distinctBy { it.articleIdentityKey() }
+            }
+            .distinctUntilChanged()
+    }
 
     /**
      * Paged observation of the whole local archive ("Все загруженные"). Unlike [observeFeed] it
@@ -511,15 +525,25 @@ class TechReaderRepository(
         hideRead: Boolean = false,
     ): Int = feedDao.countAllCachedPaged(hubFilter, tagFilter, query, hideRead)
 
+    /**
+     * Total rows stored for [feedId]. The feed list handed to the UI is capped by the DAO list
+     * queries, so this count is the authoritative archive size shown to the user.
+     */
+    suspend fun countFeed(feedId: String): Int =
+        if (feedId == HabrApiSource.FeedIds.AllCached) countLocalAll() else feedDao.countByFeed(feedId)
+
     fun observeBookmarks(): Flow<List<FeedItem>> = combine(
         feedDao.getBookmarks(),
         feedDao.getArticleLocalStates(),
         feedDao.getFavoriteArticles(),
-    ) { entities, localStates, favorites ->
-        entities
-            .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
-            .distinctBy { it.articleIdentityKey() }
-    }.distinctUntilChanged()
+    ) { entities, localStates, favorites -> Triple(entities, localStates, favorites) }
+        .conflate()
+        .map { (entities, localStates, favorites) ->
+            entities
+                .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+                .distinctBy { it.articleIdentityKey() }
+        }
+        .distinctUntilChanged()
 
     fun observeArticleItem(articleId: String): Flow<FeedItem?> = combine(
         feedDao.observeById(articleId),

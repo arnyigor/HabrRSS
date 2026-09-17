@@ -36,3 +36,10 @@ data class FeedItemEntity(
     /** Server-defined position inside a curated snapshot feed; null for time-ordered feeds. */
     val sourceOrder: Int? = null,
 )
+
+/**
+ * Feed-list projection of [FeedItemEntity]: drops the heavy cachedArticleJson article body, which
+ * only the reader (getById) needs. Keeps in-memory feed lists small on large archives.
+ */
+internal fun FeedItemEntity.toListRow(): FeedItemEntity =
+    if (cachedArticleJson == null) this else copy(cachedArticleJson = null)

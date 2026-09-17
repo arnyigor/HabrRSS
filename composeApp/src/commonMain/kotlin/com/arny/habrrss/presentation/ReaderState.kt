@@ -45,6 +45,12 @@ data class ReaderUiState(
      * active feed is not AllCached or the count has not been computed yet.
      */
     val localAllTotalCount: Int? = null,
+    /**
+     * Total rows stored for the active feed (SQL COUNT). The in-memory feed list is capped
+     * (see FeedDao.getByFeed), so the UI reports this as the real archive size while only the
+     * newest [FEED_LIST_LIMIT] rows are held in memory.
+     */
+    val activeFeedTotalCount: Int? = null,
     val loadAllPages: LoadAllPagesUiState = LoadAllPagesUiState.Idle,
     val errorMessage: String? = null,
     val settings: FeedSettings = FeedSettings.defaults(),

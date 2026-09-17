@@ -242,9 +242,15 @@ private fun buildFilterSummary(
     hubCount: Int,
     tagCount: Int,
 ): String = buildString {
-    val total = state.localAllTotalCount
-    if (state.activeFeedId == HabrApiSource.FeedIds.AllCached && total != null) {
-        // SQL COUNT covers the whole archive, visibleItems only the pages loaded so far.
+    // SQL COUNT covers the whole stored archive, while only a capped window is held in memory /
+    // rendered for the paged local feed, so report both numbers when they diverge. Bookmarks are
+    // a separate list: the archive count of the feed visited before must not leak into it.
+    val total = if (state.selectedDestination == ReaderDestination.Bookmarks) {
+        null
+    } else {
+        state.localAllTotalCount ?: state.activeFeedTotalCount
+    }
+    if (total != null && total > state.visibleItems.size) {
         append("Показано ${state.visibleItems.size} из $total статей")
     } else {
         append("${state.visibleItems.size} статей")

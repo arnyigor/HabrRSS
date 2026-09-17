@@ -23,7 +23,7 @@ class FileBackedFeedDao(
     private val version = MutableStateFlow(0)
 
     override fun getByFeed(feedId: String): Flow<List<FeedItemEntity>> =
-        version.map { items.byFeed(feedId) }
+        version.map { items.byFeed(feedId).toListRows() }
 
     override suspend fun getByFeedOnce(feedId: String): List<FeedItemEntity> =
         items.byFeed(feedId)
@@ -31,8 +31,11 @@ class FileBackedFeedDao(
     override suspend fun getNewestFetchedAtByFeed(feedId: String): Long? =
         items.filter { it.feedId == feedId }.maxOfOrNull { it.fetchedAt }
 
+    override suspend fun countByFeed(feedId: String): Int =
+        items.count { it.feedId == feedId }
+
     override fun getAllCached(): Flow<List<FeedItemEntity>> =
-        version.map { items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt } }
+        version.map { items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt }.toListRows() }
 
     override suspend fun getAllCachedOnce(): List<FeedItemEntity> =
         items.sortedByDescending { it.publishedAtEpoch ?: it.fetchedAt }
@@ -85,7 +88,7 @@ class FileBackedFeedDao(
         items.firstOrNull { it.url == url || it.url.trimEnd('/') == url.trimEnd('/') }
 
     override fun getBookmarks(): Flow<List<FeedItemEntity>> =
-        version.map { items.bookmarks() }
+        version.map { items.bookmarks().toListRows() }
 
     override suspend fun getBookmarksOnce(): List<FeedItemEntity> =
         items.bookmarks()
@@ -243,6 +246,10 @@ class FileBackedFeedDao(
 
     private fun List<FeedItemEntity>.bookmarks(): List<FeedItemEntity> =
         filter { it.id in favoriteArticles }.sortedByDescending { favoriteArticles[it.id]?.createdAt ?: 0L }
+
+    /** Mirrors the Room list queries: capped count and without the cachedArticleJson body. */
+    private fun List<FeedItemEntity>.toListRows(): List<FeedItemEntity> =
+        asSequence().take(FEED_LIST_LIMIT).map { it.toListRow() }.toList()
 
     private fun List<FeedItemEntity>.matching(
         hubFilter: String?,

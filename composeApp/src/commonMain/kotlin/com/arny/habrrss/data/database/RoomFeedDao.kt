@@ -17,6 +17,9 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
     override suspend fun getNewestFetchedAtByFeed(feedId: String): Long? =
         feedDao.getNewestFetchedAtByFeed(feedId)
 
+    override suspend fun countByFeed(feedId: String): Int =
+        feedDao.countByFeed(feedId)
+
     override fun getAllCached(): Flow<List<FeedItemEntity>> =
         feedDao.getAllCached()
 

@@ -240,20 +240,27 @@ private fun MetadataRow(
 internal fun String.withoutHabrMetadata(): String {
     // Only strip a *trailing* "Хабы:/Метки:/Теги:" footer. Cutting at the first occurrence
     // destroyed real description text whenever an article mentioned tags/hubs mid-body, which
-    // left feed cards with no description at all. We therefore look at the LAST occurrence and
-    // only treat it as a footer when nothing past it looks like prose.
+    // left feed cards with no description at all. We therefore look at the LAST occurrence of
+    // each marker and keep the earliest one that still starts a metadata footer, so
+    // "Хабы: a, b Метки: c" is removed as a whole instead of leaving "Метки: c" behind.
     val labels = listOf("Хабы:", "Метки:", "Теги:")
-    val cut = labels.firstNotNullOfOrNull { label ->
-        val idx = lastIndexOf(label)
-        if (idx >= 0 && isTrailingMetadataBlock(this, idx)) idx else null
-    } ?: return this
+    val cut = labels
+        .mapNotNull { label -> lastIndexOf(label).takeIf { it >= 0 } }
+        .sorted()
+        .firstOrNull { index -> isTrailingMetadataBlock(this, index) }
+        ?: return this
     return substring(0, cut).trim()
 }
 
 private fun isTrailingMetadataBlock(text: String, labelIndex: Int): Boolean {
     val tail = text.substring(labelIndex)
-    if (tail.length > 300) return false
-    // A footer is just hub/tag tokens; real prose would contain sentence punctuation.
+    if (tail.length > 400) return false
+    val markerCount = listOf("Хабы:", "Метки:", "Теги:").count { tail.contains(it) }
+    // Two or more markers is unambiguous: Habr renders hubs and tags as one footer block, and
+    // that footer often contains prose-looking fragments (e.g. «Продолжение «Манифеста»…»)
+    // followed by sentence punctuation, so punctuation alone cannot be used as the signal.
+    if (markerCount >= 2) return true
+    // A single marker is a footer only when the rest looks like a token list, not prose.
     return tail.none { it in ".!?" }
 }
 

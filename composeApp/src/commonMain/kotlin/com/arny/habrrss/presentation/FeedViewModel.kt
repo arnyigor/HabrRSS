@@ -179,11 +179,15 @@ class FeedViewModel(
             } else {
                 repository.observeFeed(feedId).flowOn(Dispatchers.Default).collect { items ->
                     AppLog.d(TAG, "observeFeed emission feedId=$feedId items=${items.size}")
+                    // The in-memory list is capped by the DAO query, so the real archive size comes
+                    // from a cheap SQL COUNT instead of items.size.
+                    val totalCount = repository.countFeed(feedId)
                     updateState { state ->
                         val selected = state.selectedArticleId
                         state.copy(
                             items = items,
                             localAllTotalCount = null,
+                            activeFeedTotalCount = totalCount,
                             selectedArticleBookmarked = items.firstOrNull { it.id == selected }?.isBookmarked
                                 ?: state.selectedArticleBookmarked,
                         )

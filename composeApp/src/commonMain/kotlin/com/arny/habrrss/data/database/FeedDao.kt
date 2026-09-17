@@ -11,7 +11,30 @@ import kotlinx.coroutines.flow.Flow
 interface FeedDao {
     // ---------- Server/cache data ----------
 
-    @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY CASE WHEN sourceOrder IS NULL THEN 1 ELSE 0 END ASC, sourceOrder ASC, COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    /**
+     * Feed-list queries deliberately exclude the cachedArticleJson TEXT column (full article body
+     * JSON) and cap the row count:
+     *
+     * - cachedArticleJson is only needed by the reader (getById/observeById), never by the list.
+     *   Loading it for every row of a hub archive made the feed pipeline hold tens of MB of extra
+     *   strings per emission.
+     * - The LIMIT bounds the in-memory feed list. Hub archives grow to 10k+ articles and both the
+     *   mapped domain list and the intermediate pipeline copies multiplied by that size exhausted
+     *   the 256 MB Java heap limit during "Загрузить все страницы" (OutOfMemoryError).
+     *   The complete archive stays browsable through the SQL-paged "Все загруженные" feed.
+     */
+
+    @Query(
+        """
+        SELECT id, feedId, title, summary, descriptionHtml, url, imageUrl, authorName,
+               authorProfileUrl, publishedAt, publishedAtEpoch, tagsJson, hubsJson, rating,
+               commentsCount, NULL AS cachedArticleJson, fetchedAt, sourceOrder
+        FROM feed_items WHERE feedId = :feedId
+        ORDER BY CASE WHEN sourceOrder IS NULL THEN 1 ELSE 0 END ASC, sourceOrder ASC,
+                 COALESCE(publishedAtEpoch, fetchedAt) DESC
+        LIMIT $FEED_LIST_LIMIT
+        """
+    )
     fun getByFeed(feedId: String): Flow<List<FeedItemEntity>>
 
     @Query("SELECT * FROM feed_items WHERE feedId = :feedId ORDER BY CASE WHEN sourceOrder IS NULL THEN 1 ELSE 0 END ASC, sourceOrder ASC, COALESCE(publishedAtEpoch, fetchedAt) DESC")
@@ -20,7 +43,24 @@ interface FeedDao {
     @Query("SELECT MAX(fetchedAt) FROM feed_items WHERE feedId = :feedId")
     suspend fun getNewestFetchedAtByFeed(feedId: String): Long?
 
-    @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
+    /**
+     * Total rows stored for a feed. The feed list itself is capped by [FEED_LIST_LIMIT], so this
+     * count is what the UI reports as the real archive size while only the newest rows are held
+     * in memory.
+     */
+    @Query("SELECT COUNT(*) FROM feed_items WHERE feedId = :feedId")
+    suspend fun countByFeed(feedId: String): Int
+
+    @Query(
+        """
+        SELECT id, feedId, title, summary, descriptionHtml, url, imageUrl, authorName,
+               authorProfileUrl, publishedAt, publishedAtEpoch, tagsJson, hubsJson, rating,
+               commentsCount, NULL AS cachedArticleJson, fetchedAt, sourceOrder
+        FROM feed_items
+        ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC
+        LIMIT $FEED_LIST_LIMIT
+        """
+    )
     fun getAllCached(): Flow<List<FeedItemEntity>>
 
     @Query("SELECT * FROM feed_items ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC")
@@ -143,7 +183,18 @@ interface FeedDao {
     @Query("DELETE FROM favorite_articles WHERE articleId = :articleId")
     suspend fun deleteFavoriteArticle(articleId: String)
 
-    @Query("SELECT feed_items.* FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, feed_items.fetchedAt) DESC")
+    @Query(
+        """
+        SELECT feed_items.id, feed_items.feedId, feed_items.title, feed_items.summary,
+               feed_items.descriptionHtml, feed_items.url, feed_items.imageUrl, feed_items.authorName,
+               feed_items.authorProfileUrl, feed_items.publishedAt, feed_items.publishedAtEpoch,
+               feed_items.tagsJson, feed_items.hubsJson, feed_items.rating, feed_items.commentsCount,
+               NULL AS cachedArticleJson, feed_items.fetchedAt, feed_items.sourceOrder
+        FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id
+        ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, feed_items.fetchedAt) DESC
+        LIMIT $FEED_LIST_LIMIT
+        """
+    )
     fun getBookmarks(): Flow<List<FeedItemEntity>>
 
     @Query("SELECT feed_items.* FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, feed_items.fetchedAt) DESC")
@@ -185,3 +236,10 @@ interface FeedDao {
     suspend fun upsertSyncState(state: SyncStateEntity)
 
 }
+
+/**
+ * Max number of rows materialized into the in-memory feed list (see the note on [FeedDao.getByFeed]).
+ * 3000 rows keeps the mapped domain list plus its intermediate pipeline copies comfortably inside
+ * the 256 MB Java heap; larger hub archives overflowed it and crashed the app with OutOfMemoryError.
+ */
+internal const val FEED_LIST_LIMIT = 3000
