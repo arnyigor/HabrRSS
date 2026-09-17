@@ -27,6 +27,7 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
         feedDao.getAllCachedOnce()
 
     override fun getAllCachedPaged(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
@@ -34,15 +35,16 @@ class RoomFeedDao(private val feedDao: FeedDao) : FeedDao {
         limit: Int,
         offset: Int,
     ): Flow<List<FeedItemEntity>> =
-        feedDao.getAllCachedPaged(hubFilter, tagFilter, query, hideRead, limit, offset)
+        feedDao.getAllCachedPaged(feedId, hubFilter, tagFilter, query, hideRead, limit, offset)
 
     override suspend fun countAllCachedPaged(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
         hideRead: Boolean,
     ): Int =
-        feedDao.countAllCachedPaged(hubFilter, tagFilter, query, hideRead)
+        feedDao.countAllCachedPaged(feedId, hubFilter, tagFilter, query, hideRead)
 
     override suspend fun getById(id: String): FeedItemEntity? =
         feedDao.getById(id)

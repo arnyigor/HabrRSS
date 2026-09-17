@@ -130,6 +130,45 @@ class TechReaderRepositoryTest {
     }
 
     @Test
+    fun observeFeedPagePagesThroughOneBucketWithoutSkippingOrDuplicating() = runTest {
+        val items = (1..5).map { index -> remoteItem(id = "item-$index", title = "Article $index") }
+        val repository = TechReaderRepository(
+            primarySource = MutableRemoteFeedSource(items),
+            feedDao = InMemoryFeedDao(),
+        )
+        repository.refreshFeed("feed")
+
+        val seen = mutableListOf<String>()
+        for (offset in 0 until 5 step 2) {
+            seen += repository.observeFeedPage("feed", limit = 2, offset = offset).first().map { it.id }
+        }
+
+        assertEquals(5, repository.countFeedPage("feed"))
+        assertEquals(items.map { it.id }.toSet(), seen.toSet())
+        assertEquals(seen.size, seen.toSet().size, "no page boundary may repeat or skip rows")
+    }
+
+    @Test
+    fun searchFindsRowsBeyondTheFirstPage() = runTest {
+        val items = (1..30).map { index -> remoteItem(id = "item-$index", title = "Article $index") } +
+            remoteItem(id = "needle", title = "Coroutines deep dive")
+        val repository = TechReaderRepository(
+            primarySource = MutableRemoteFeedSource(items),
+            feedDao = InMemoryFeedDao(),
+        )
+        repository.refreshFeed("feed")
+
+        // The match sits outside the first page, so paging has to keep walking the SQL result set.
+        val firstPage = repository.observeFeedPage("feed", limit = 5, offset = 0, query = "deep dive").first()
+        val total = repository.countFeedPage("feed", query = "deep dive")
+
+        assertEquals(listOf("needle"), firstPage.map { it.id })
+        assertEquals(1, total)
+        // Unfiltered paging still sees every row.
+        assertEquals(31, repository.countFeedPage("feed"))
+    }
+
+    @Test
     fun observeLocalAllPageAppliesUnreadFilter() = runTest {
         val dao = InMemoryFeedDao()
         val repository = TechReaderRepository(

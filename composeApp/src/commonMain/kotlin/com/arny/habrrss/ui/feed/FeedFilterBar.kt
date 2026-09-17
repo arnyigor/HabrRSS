@@ -242,10 +242,12 @@ private fun buildFilterSummary(
     hubCount: Int,
     tagCount: Int,
 ): String = buildString {
-    // SQL COUNT covers the whole stored archive, while only a capped window is held in memory /
-    // rendered for the paged local feed, so report both numbers when they diverge. Bookmarks are
-    // a separate list: the archive count of the feed visited before must not leak into it.
-    val total = if (state.selectedDestination == ReaderDestination.Bookmarks) {
+    // SQL COUNT covers the whole stored archive, while the feed renders one page at a time, so
+    // report both numbers when they diverge. Bookmarks are a separate list (the previous feed's
+    // total must not leak into it), and for a multi-word query the SQL pre-filter only matches the
+    // first term, so its count is not the real result size.
+    val multiTermQuery = state.searchQuery.trim().split(Regex("\\s+")).count { it.isNotBlank() } > 1
+    val total = if (state.selectedDestination == ReaderDestination.Bookmarks || multiTermQuery) {
         null
     } else {
         state.localAllTotalCount ?: state.activeFeedTotalCount

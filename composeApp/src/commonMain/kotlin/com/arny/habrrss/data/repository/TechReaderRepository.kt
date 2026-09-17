@@ -191,7 +191,7 @@ class TechReaderRepository(
     private suspend fun refreshAllCachedFeed(startedAt: Long): FeedPage {
         val localStates = feedDao.getArticleLocalStatesOnce().byArticleId()
         val favorites = feedDao.getFavoriteArticlesOnce().articleIds()
-        val entities = feedDao.getAllCachedPaged(null, null, null, false, LOCAL_ALL_PAGE_SIZE, 0).first()
+        val entities = feedDao.getAllCachedPaged(null, null, null, null, false, FEED_PAGE_SIZE, 0).first()
         val items = entities.map { it.toDomain(json, localStates, favorites) }
             .distinctBy { it.articleIdentityKey() }
         AppLog.i(
@@ -472,35 +472,16 @@ class TechReaderRepository(
     fun hasMorePages(feedId: String): Boolean =
         feedId != HabrApiSource.FeedIds.AllCached && feedCursorsFlow.value[feedId] != null
 
-    fun observeFeed(feedId: String): Flow<List<FeedItem>> {
-        val entitiesFlow = if (feedId == HabrApiSource.FeedIds.AllCached) {
-            feedDao.getAllCached()
-        } else {
-            feedDao.getByFeed(feedId)
-        }
-        return combine(
-            entitiesFlow,
-            feedDao.getArticleLocalStates(),
-            feedDao.getFavoriteArticles(),
-        ) { entities, localStates, favorites -> Triple(entities, localStates, favorites) }
-            // During an archive import the DAO re-emits on every inserted page. Collapse that burst
-            // so the expensive domain mapping (and the UI state rebuild it feeds) runs on the
-            // latest snapshot instead of once per page.
-            .conflate()
-            .map { (entities, localStates, favorites) ->
-                entities
-                    .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
-                    .distinctBy { it.articleIdentityKey() }
-            }
-            .distinctUntilChanged()
-    }
-
     /**
-     * Paged observation of the whole local archive ("Все загруженные"). Unlike [observeFeed] it
-     * never materializes the full cache: the DAO slices a page (with filters pushed to SQL) and only
-     * the rows of that page are mapped to domain objects.
+     * One page of a feed straight from the database, with the filters pushed to SQL.
+     *
+     * This is what the feed UI walks through: [feedId] scopes the page to a single feed bucket
+     * (`null` means the whole archive, i.e. "Все загруженные"), so a hub archive with 20k+ stored
+     * articles is never materialized into a single in-memory list (that used to exhaust the 256 MB
+     * Java heap while "Загрузить все страницы" was running).
      */
-    fun observeLocalAllPage(
+    fun observeFeedPage(
+        feedId: String?,
         limit: Int,
         offset: Int,
         hubFilter: String? = null,
@@ -508,14 +489,46 @@ class TechReaderRepository(
         query: String? = null,
         hideRead: Boolean = false,
     ): Flow<List<FeedItem>> = combine(
-        feedDao.getAllCachedPaged(hubFilter, tagFilter, query, hideRead, limit, offset),
+        feedDao.getAllCachedPaged(feedId, hubFilter, tagFilter, query, hideRead, limit, offset),
         feedDao.getArticleLocalStates(),
         feedDao.getFavoriteArticles(),
-    ) { entities, localStates, favorites ->
-        entities
-            .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
-            .distinctBy { it.articleIdentityKey() }
-    }.distinctUntilChanged()
+    ) { entities, localStates, favorites -> Triple(entities, localStates, favorites) }
+        // A running archive import inserts a page every few hundred ms; collapse that burst so the
+        // domain mapping runs on the latest snapshot instead of once per inserted page.
+        .conflate()
+        .map { (entities, localStates, favorites) ->
+            entities
+                .map { entity -> entity.toDomain(json, localStates.byArticleId(), favorites.articleIds()) }
+                .distinctBy { it.articleIdentityKey() }
+        }
+        .distinctUntilChanged()
+
+    /** Total rows matching [observeFeedPage] (same [feedId] scope and filters). */
+    suspend fun countFeedPage(
+        feedId: String?,
+        hubFilter: String? = null,
+        tagFilter: String? = null,
+        query: String? = null,
+        hideRead: Boolean = false,
+    ): Int = feedDao.countAllCachedPaged(feedId, hubFilter, tagFilter, query, hideRead)
+
+    /** Archive-wide page, kept for the "Все загруженные" call sites and tests. */
+    fun observeLocalAllPage(
+        limit: Int,
+        offset: Int,
+        hubFilter: String? = null,
+        tagFilter: String? = null,
+        query: String? = null,
+        hideRead: Boolean = false,
+    ): Flow<List<FeedItem>> = observeFeedPage(
+        feedId = null,
+        limit = limit,
+        offset = offset,
+        hubFilter = hubFilter,
+        tagFilter = tagFilter,
+        query = query,
+        hideRead = hideRead,
+    )
 
     /** Total rows matching [observeLocalAllPage] filters; used to know whether another page exists. */
     suspend fun countLocalAll(
@@ -523,14 +536,7 @@ class TechReaderRepository(
         tagFilter: String? = null,
         query: String? = null,
         hideRead: Boolean = false,
-    ): Int = feedDao.countAllCachedPaged(hubFilter, tagFilter, query, hideRead)
-
-    /**
-     * Total rows stored for [feedId]. The feed list handed to the UI is capped by the DAO list
-     * queries, so this count is the authoritative archive size shown to the user.
-     */
-    suspend fun countFeed(feedId: String): Int =
-        if (feedId == HabrApiSource.FeedIds.AllCached) countLocalAll() else feedDao.countByFeed(feedId)
+    ): Int = countFeedPage(null, hubFilter, tagFilter, query, hideRead)
 
     fun observeBookmarks(): Flow<List<FeedItem>> = combine(
         feedDao.getBookmarks(),
@@ -1406,5 +1412,5 @@ private const val RELATED_ARTICLES_LIMIT = 6
 private const val TAG_MATCH_WEIGHT = 2
 private const val HUB_MATCH_WEIGHT = 1
 private const val FEED_REFRESH_TTL_MILLIS = 60L * 60L * 1_000L
-private const val LOCAL_ALL_PAGE_SIZE = 200
+private const val FEED_PAGE_SIZE = 200
 private const val TAG = "Repository"

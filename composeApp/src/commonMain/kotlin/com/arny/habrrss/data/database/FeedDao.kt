@@ -13,15 +13,13 @@ interface FeedDao {
 
     /**
      * Feed-list queries deliberately exclude the cachedArticleJson TEXT column (full article body
-     * JSON) and cap the row count:
+     * JSON): it is only needed by the reader (getById/observeById), never by the list, and loading
+     * it for every row of a hub archive made the feed pipeline hold tens of MB of extra strings per
+     * emission.
      *
-     * - cachedArticleJson is only needed by the reader (getById/observeById), never by the list.
-     *   Loading it for every row of a hub archive made the feed pipeline hold tens of MB of extra
-     *   strings per emission.
-     * - The LIMIT bounds the in-memory feed list. Hub archives grow to 10k+ articles and both the
-     *   mapped domain list and the intermediate pipeline copies multiplied by that size exhausted
-     *   the 256 MB Java heap limit during "Загрузить все страницы" (OutOfMemoryError).
-     *   The complete archive stays browsable through the SQL-paged "Все загруженные" feed.
+     * Memory is bounded by paging instead of a hard LIMIT: the feed UI walks the SQL pages of
+     * [getAllCachedPaged] (see observeFeedPage in the repository), so a 20k+ article archive is
+     * never materialized at once.
      */
 
     @Query(
@@ -31,8 +29,7 @@ interface FeedDao {
                commentsCount, NULL AS cachedArticleJson, fetchedAt, sourceOrder
         FROM feed_items WHERE feedId = :feedId
         ORDER BY CASE WHEN sourceOrder IS NULL THEN 1 ELSE 0 END ASC, sourceOrder ASC,
-                 COALESCE(publishedAtEpoch, fetchedAt) DESC
-        LIMIT $FEED_LIST_LIMIT
+                 COALESCE(publishedAtEpoch, fetchedAt) DESC, id ASC
         """
     )
     fun getByFeed(feedId: String): Flow<List<FeedItemEntity>>
@@ -44,9 +41,8 @@ interface FeedDao {
     suspend fun getNewestFetchedAtByFeed(feedId: String): Long?
 
     /**
-     * Total rows stored for a feed. The feed list itself is capped by [FEED_LIST_LIMIT], so this
-     * count is what the UI reports as the real archive size while only the newest rows are held
-     * in memory.
+     * Total rows stored for a feed. The feed UI only holds the pages it has walked through, so this
+     * count is what the UI reports as the real archive size.
      */
     @Query("SELECT COUNT(*) FROM feed_items WHERE feedId = :feedId")
     suspend fun countByFeed(feedId: String): Int
@@ -57,8 +53,7 @@ interface FeedDao {
                authorProfileUrl, publishedAt, publishedAtEpoch, tagsJson, hubsJson, rating,
                commentsCount, NULL AS cachedArticleJson, fetchedAt, sourceOrder
         FROM feed_items
-        ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC
-        LIMIT $FEED_LIST_LIMIT
+        ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC, id ASC
         """
     )
     fun getAllCached(): Flow<List<FeedItemEntity>>
@@ -67,13 +62,15 @@ interface FeedDao {
     suspend fun getAllCachedOnce(): List<FeedItemEntity>
 
     /**
-     * Paged snapshot of the whole local cache ("Все загруженные"). Optional filters are pushed to
-     * SQL so a huge archive can be browsed page by page without mapping every row to domain.
+     * Paged snapshot of the local cache, optionally scoped to a single feed (`feedId = null` means
+     * the whole archive, i.e. "Все загруженные"). Filters are pushed to SQL so a 20k+ article
+     * archive is browsed page by page instead of being mapped to domain objects all at once.
      */
     @Query(
         """
         SELECT * FROM feed_items
-        WHERE (:hubFilter IS NULL OR hubsJson LIKE '%' || :hubFilter || '%')
+        WHERE (:feedId IS NULL OR feedId = :feedId)
+          AND (:hubFilter IS NULL OR hubsJson LIKE '%' || :hubFilter || '%')
           AND (:tagFilter IS NULL OR tagsJson LIKE '%' || :tagFilter || '%')
           AND (:query IS NULL OR title LIKE '%' || :query || '%'
                OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%'
@@ -82,11 +79,12 @@ interface FeedDao {
           AND (:hideRead = 0 OR NOT EXISTS (
               SELECT 1 FROM article_local_state als WHERE als.articleId = feed_items.id AND als.isRead = 1
           ))
-        ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC
+        ORDER BY COALESCE(publishedAtEpoch, fetchedAt) DESC, id ASC
         LIMIT :limit OFFSET :offset
         """
     )
     fun getAllCachedPaged(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
@@ -102,7 +100,8 @@ interface FeedDao {
     @Query(
         """
         SELECT COUNT(*) FROM feed_items
-        WHERE (:hubFilter IS NULL OR hubsJson LIKE '%' || :hubFilter || '%')
+        WHERE (:feedId IS NULL OR feedId = :feedId)
+          AND (:hubFilter IS NULL OR hubsJson LIKE '%' || :hubFilter || '%')
           AND (:tagFilter IS NULL OR tagsJson LIKE '%' || :tagFilter || '%')
           AND (:query IS NULL OR title LIKE '%' || :query || '%'
                OR summary LIKE '%' || :query || '%' OR authorName LIKE '%' || :query || '%'
@@ -114,6 +113,7 @@ interface FeedDao {
         """
     )
     suspend fun countAllCachedPaged(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
@@ -192,7 +192,6 @@ interface FeedDao {
                NULL AS cachedArticleJson, feed_items.fetchedAt, feed_items.sourceOrder
         FROM feed_items INNER JOIN favorite_articles ON favorite_articles.articleId = feed_items.id
         ORDER BY favorite_articles.createdAt DESC, COALESCE(feed_items.publishedAtEpoch, feed_items.fetchedAt) DESC
-        LIMIT $FEED_LIST_LIMIT
         """
     )
     fun getBookmarks(): Flow<List<FeedItemEntity>>
@@ -237,9 +236,3 @@ interface FeedDao {
 
 }
 
-/**
- * Max number of rows materialized into the in-memory feed list (see the note on [FeedDao.getByFeed]).
- * 3000 rows keeps the mapped domain list plus its intermediate pipeline copies comfortably inside
- * the 256 MB Java heap; larger hub archives overflowed it and crashed the app with OutOfMemoryError.
- */
-internal const val FEED_LIST_LIMIT = 3000

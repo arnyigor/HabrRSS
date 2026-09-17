@@ -63,25 +63,31 @@ class InMemoryFeedDaoTest {
             ),
         )
 
-        // Newest first ordering + limit/offset slicing.
-        assertEquals(listOf("a", "b"), dao.getAllCachedPaged(null, null, null, false, limit = 2, offset = 0).first().map { it.id })
-        assertEquals(listOf("c", "d"), dao.getAllCachedPaged(null, null, null, false, limit = 2, offset = 2).first().map { it.id })
-        assertEquals(4, dao.countAllCachedPaged(null, null, null, false))
+        // Newest first ordering + limit/offset slicing (feedId = null means the whole archive).
+        assertEquals(listOf("a", "b"), dao.getAllCachedPaged(null, null, null, null, false, limit = 2, offset = 0).first().map { it.id })
+        assertEquals(listOf("c", "d"), dao.getAllCachedPaged(null, null, null, null, false, limit = 2, offset = 2).first().map { it.id })
+        assertEquals(4, dao.countAllCachedPaged(null, null, null, null, false))
 
         // Hub filter.
-        assertEquals(listOf("a", "c"), dao.getAllCachedPaged(hubFilter = "android", null, null, false, limit = 10, offset = 0).first().map { it.id })
-        assertEquals(2, dao.countAllCachedPaged(hubFilter = "android", null, null, false))
+        assertEquals(listOf("a", "c"), dao.getAllCachedPaged(null, "android", null, null, false, limit = 10, offset = 0).first().map { it.id })
+        assertEquals(2, dao.countAllCachedPaged(null, "android", null, null, false))
 
         // Tag filter.
-        assertEquals(listOf("b"), dao.getAllCachedPaged(null, tagFilter = "compose", null, false, limit = 10, offset = 0).first().map { it.id })
+        assertEquals(listOf("b"), dao.getAllCachedPaged(null, null, "compose", null, false, limit = 10, offset = 0).first().map { it.id })
 
         // Text query against title.
-        assertEquals(listOf("a"), dao.getAllCachedPaged(null, null, query = "Flow", false, limit = 10, offset = 0).first().map { it.id })
+        assertEquals(listOf("a"), dao.getAllCachedPaged(null, null, null, "Flow", false, limit = 10, offset = 0).first().map { it.id })
 
         // hideRead excludes rows with isRead = 1 in article_local_state.
         dao.upsertArticleLocalState(ArticleLocalStateEntity(articleId = "a", isRead = true))
-        assertEquals(listOf("b", "c", "d"), dao.getAllCachedPaged(null, null, null, hideRead = true, limit = 10, offset = 0).first().map { it.id })
-        assertEquals(3, dao.countAllCachedPaged(null, null, null, hideRead = true))
+        assertEquals(listOf("b", "c", "d"), dao.getAllCachedPaged(null, null, null, null, true, limit = 10, offset = 0).first().map { it.id })
+        assertEquals(3, dao.countAllCachedPaged(null, null, null, null, true))
+
+        // Feed scope: only rows of the requested feed bucket are returned (all fixtures live in
+        // the "feed" bucket, so another feed id yields nothing).
+        assertEquals(listOf("a"), dao.getAllCachedPaged("feed", null, null, null, false, limit = 1, offset = 0).first().map { it.id })
+        assertEquals(4, dao.countAllCachedPaged("feed", null, null, null, false))
+        assertEquals(0, dao.countAllCachedPaged("other-feed", null, null, null, false))
     }
 
     private fun entity(

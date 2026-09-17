@@ -36,6 +36,7 @@ class InMemoryFeedDao : FeedDao {
         items.sortedByDescending { it.publishedAtEpoch ?: it.fetchedAt }
 
     override fun getAllCachedPaged(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
@@ -44,19 +45,20 @@ class InMemoryFeedDao : FeedDao {
         offset: Int,
     ): Flow<List<FeedItemEntity>> =
         version.map {
-            items.sortedByDescending { item -> item.publishedAtEpoch ?: item.fetchedAt }
-                .matching(hubFilter, tagFilter, query, hideRead)
+            items.stableNewestFirst()
+                .matching(feedId, hubFilter, tagFilter, query, hideRead)
                 .drop(offset)
                 .take(limit)
         }
 
     override suspend fun countAllCachedPaged(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
         hideRead: Boolean,
     ): Int =
-        items.matching(hubFilter, tagFilter, query, hideRead).size
+        items.matching(feedId, hubFilter, tagFilter, query, hideRead).size
 
     override suspend fun getById(id: String): FeedItemEntity? =
         items.firstOrNull { it.id == id }
@@ -215,18 +217,31 @@ class InMemoryFeedDao : FeedDao {
     private fun List<FeedItemEntity>.bookmarks(): List<FeedItemEntity> =
         filter { it.id in favoriteArticles }.sortedByDescending { favoriteArticles[it.id]?.createdAt ?: it.fetchedAt }
 
-    /** Mirrors the Room list queries: capped count and without the cachedArticleJson body. */
+    /** Mirrors the Room list queries: drops the cachedArticleJson body, which only the reader needs. */
     private fun List<FeedItemEntity>.toListRows(): List<FeedItemEntity> =
-        asSequence().take(FEED_LIST_LIMIT).map { it.toListRow() }.toList()
+        map { it.toListRow() }
+
+    /**
+     * Newest-first with a unique tiebreaker: page reads are separate queries, so rows sharing
+     * publishedAtEpoch/fetchedAt must keep a deterministic relative order or a page boundary can
+     * skip a row.
+     */
+    private fun List<FeedItemEntity>.stableNewestFirst(): List<FeedItemEntity> =
+        sortedWith(
+            compareByDescending<FeedItemEntity> { it.publishedAtEpoch ?: it.fetchedAt }
+                .thenBy { it.id }
+        )
 
     private fun List<FeedItemEntity>.matching(
+        feedId: String?,
         hubFilter: String?,
         tagFilter: String?,
         query: String?,
         hideRead: Boolean,
     ): List<FeedItemEntity> =
         filter { item ->
-            (hubFilter == null || item.hubsJson.contains(hubFilter, ignoreCase = true)) &&
+            (feedId == null || item.feedId == feedId) &&
+                (hubFilter == null || item.hubsJson.contains(hubFilter, ignoreCase = true)) &&
                 (tagFilter == null || item.tagsJson.contains(tagFilter, ignoreCase = true)) &&
                 (query == null || item.matchesQuery(query)) &&
                 (!hideRead || localStates[item.id]?.isRead != true)

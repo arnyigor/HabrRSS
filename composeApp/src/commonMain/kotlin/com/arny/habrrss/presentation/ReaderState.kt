@@ -46,9 +46,8 @@ data class ReaderUiState(
      */
     val localAllTotalCount: Int? = null,
     /**
-     * Total rows stored for the active feed (SQL COUNT). The in-memory feed list is capped
-     * (see FeedDao.getByFeed), so the UI reports this as the real archive size while only the
-     * newest [FEED_LIST_LIMIT] rows are held in memory.
+     * Total rows stored for the active feed (SQL COUNT). The feed UI walks the stored rows page by
+     * page, so this is the real archive size while only the pages visited so far are in memory.
      */
     val activeFeedTotalCount: Int? = null,
     val loadAllPages: LoadAllPagesUiState = LoadAllPagesUiState.Idle,
